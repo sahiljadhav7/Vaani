@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: vaani-server
+    runtime: node
+    plan: free
+    # Closest Render region to India, where both Participants and Sarvam are.
+    region: singapore
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    # Keep exactly one instance: live Calls are held in memory, so a second one would split them (ADR 0002).
+    envVars:
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
