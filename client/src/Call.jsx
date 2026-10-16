@@ -13,9 +13,10 @@ function useSpeaking(stream) {
     const analyser = ctx.createAnalyser()
     // Into the analyser only, never ctx.destination, which would play the audio a second time.
     ctx.createMediaStreamSource(stream).connect(analyser)
-    // A context made without a click (after a reload) starts suspended; the next click wakes it.
+    // A context made without a click (after a reload) starts suspended; the next click or key press wakes it.
     const resume = () => ctx.resume()
     window.addEventListener('pointerdown', resume)
+    window.addEventListener('keydown', resume)
     const samples = new Float32Array(analyser.fftSize)
     let loudAt = 0
     const id = setInterval(() => {
@@ -28,6 +29,7 @@ function useSpeaking(stream) {
     return () => {
       clearInterval(id)
       window.removeEventListener('pointerdown', resume)
+      window.removeEventListener('keydown', resume)
       ctx.close()
     }
   }, [stream])
@@ -37,6 +39,8 @@ function useSpeaking(stream) {
 export function Tile({ role, name, you, present, reconnecting, muted, stream, subtitle }) {
   const speaking = useSpeaking(present ? stream : null)
   const tint = (theme, a) => alpha(theme.palette[role].main, a)
+  // Only the avatar and name dim; the status lines under them keep full contrast.
+  const opacity = present && !reconnecting ? 1 : 0.6
   return (
     <Card
       variant="outlined"
@@ -44,11 +48,12 @@ export function Tile({ role, name, you, present, reconnecting, muted, stream, su
         borderRadius: '22px', minHeight: 260, p: 3, gap: 1.5,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         backgroundImage: (t) => `radial-gradient(ellipse at top, ${tint(t, 0.12)}, transparent 70%)`,
-        opacity: present && !reconnecting ? 1 : 0.6,
       }}
     >
       <Avatar
+        aria-hidden
         sx={{
+          opacity,
           width: 96, height: 96, fontSize: 40, bgcolor: `${role}.main`, color: 'background.default',
           transition: 'box-shadow 0.2s',
           boxShadow: (t) => speaking ? `0 0 0 8px ${tint(t, 0.25)}, 0 0 0 16px ${tint(t, 0.1)}, 0 0 48px ${tint(t, 0.5)}` : 'none',
@@ -56,7 +61,7 @@ export function Tile({ role, name, you, present, reconnecting, muted, stream, su
       >
         {name[0]}
       </Avatar>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', opacity }}>
         <Typography variant="h6">{name}</Typography>
         {you && <Chip label="You" size="small" />}
       </Stack>
@@ -99,7 +104,7 @@ export function Duration({ startedAt }) {
 
 export function Label({ children }) {
   return (
-    <Typography sx={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'text.disabled' }}>
+    <Typography sx={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'text.secondary' }}>
       {children}
     </Typography>
   )
@@ -112,7 +117,7 @@ export function Transcript({ entries, names }) {
     listRef.current.scrollTop = listRef.current.scrollHeight
   }, [entries])
   return (
-    <List ref={listRef} role="log" aria-label="Transcript" dense sx={{ maxHeight: 280, overflowY: 'auto', scrollbarWidth: 'thin', scrollbarColor: (theme) => `${alpha(theme.palette.text.primary, 0.2)} transparent` }}>
+    <List ref={listRef} role="log" aria-label="Transcript" tabIndex={0} dense sx={{ maxHeight: 280, overflowY: 'auto', scrollbarWidth: 'thin', scrollbarColor: (theme) => `${alpha(theme.palette.text.primary, 0.2)} transparent` }}>
       {entries.map((entry) => (
         <ListItem key={entry.id} disableGutters sx={{ gap: 2, alignItems: 'baseline' }}>
           <Typography variant="body2" sx={{ color: `${entry.from}.main`, minWidth: 72, flexShrink: 0 }}>

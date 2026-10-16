@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, Container, List, ListItem, Paper, Stack, Typography } from '@mui/material'
 import AddIcCall from '@mui/icons-material/AddIcCall'
 import { Label, Transcript } from './Call.jsx'
@@ -8,6 +8,9 @@ const panel = { p: 2, borderRadius: '16px' }
 // The Summary is made from this tab's own Transcript and shown only here, never sent to the other side.
 export default function Ended({ reason, transcript, names, onStartNew }) {
   const [summary, setSummary] = useState({ state: 'idle' }) // idle | loading | done | error
+  const introRef = useRef(null)
+  // The call screen's focused button is gone, so a screen reader starts from the heading and reason.
+  useEffect(() => introRef.current.focus(), [])
 
   async function summarise() {
     setSummary({ state: 'loading' })
@@ -27,8 +30,10 @@ export default function Ended({ reason, transcript, names, onStartNew }) {
   return (
     <Container sx={{ py: 6, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 4, alignItems: 'start' }}>
       <Box>
-        <Typography variant="h4" component="h1" role="status">Call Ended</Typography>
-        <Typography sx={{ color: 'text.secondary', mt: 1 }}>{reason}</Typography>
+        <Box ref={introRef} tabIndex={-1} role="group" aria-labelledby="ended-heading ended-reason" sx={{ outline: 'none' }}>
+          <Typography id="ended-heading" variant="h4" component="h1">Call Ended</Typography>
+          <Typography id="ended-reason" sx={{ color: 'text.secondary', mt: 1 }}>{reason}</Typography>
+        </Box>
         <Stack direction="row" spacing={2} sx={{ mt: 4 }}>
           <Button variant="outlined" startIcon={<AddIcCall />} onClick={onStartNew}>Start new call</Button>
           <Button variant="contained" onClick={summarise} disabled={!transcript.length || summary.state === 'loading'}>Summarise</Button>

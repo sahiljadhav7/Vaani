@@ -14,4 +14,6 @@ export const theme = createTheme({
   },
   shape: { borderRadius: 12 },
   typography: { h3: { fontWeight: 300 } },
+  // MUI's default input border is about 1.8:1 on the page; muted passes the 3:1 that field edges need.
+  components: { MuiOutlinedInput: { styleOverrides: { notchedOutline: ({ theme }) => ({ borderColor: theme.palette.text.secondary }) } } },
 })

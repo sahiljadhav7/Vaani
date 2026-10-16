@@ -11,6 +11,8 @@ import Ended from './Ended.jsx'
 import { subtitlesSupported, useSarvamAudio, useSubtitles } from './subtitles.js'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
+// Darker than error.main so the white label passes 4.5:1.
+const endCallFill = { bgcolor: '#d13b40', '&:hover': { bgcolor: '#d13b40', filter: 'brightness(1.1)' } }
 const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected', 'audio-failed': 'Audio Failed', reconnecting: 'Reconnecting…' }
 
 // The Call this tab is in, as { callId, role, sessionId, muted, transcript }. sessionStorage is per tab and survives a reload.
@@ -251,7 +253,8 @@ export default function App() {
       // Only a rejoin has a Call to come back to; a fresh link to an ended Call is just a dead link.
       if (res.error === 'call-ended' && target.sessionId) return finish({}, callId)
       setStatus('idle')
-      const deadLink = "This Call link isn't valid, or the Call has ended."
+      // Only the invited screen has an Agent who sent the link.
+      const deadLink = `This Call link isn't valid, or the Call has ended.${linkCallId ? ' Ask your Agent for a new one.' : ''}`
       setError({
         'seat-taken': `${ROLE_NAME[role]} already connected`,
         'call-not-found': deadLink,
@@ -332,16 +335,26 @@ export default function App() {
   useSubtitles(browserSpeech && micLive)
   useSarvamAudio(stt === 'sarvam' && micLive, mic)
 
+  // Mounted on every screen, so the status the call screen opens with is announced, not only later changes.
+  const statusLive = (
+    <Box role="status" aria-live="polite" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>
+      {STATUS_TEXT[status]}
+    </Box>
+  )
+
   if (status === 'idle' || status === 'joining') {
     return (
-      <Landing
-        invited={!!linkCallId}
-        onStart={() => join({ role: 'agent' })}
-        onJoin={(callId = linkCallId) => join({ role: 'customer', callId })}
-        joining={status === 'joining'}
-        server={server}
-        error={error}
-      />
+      <>
+        {statusLive}
+        <Landing
+          invited={!!linkCallId}
+          onStart={() => join({ role: 'agent' })}
+          onJoin={(callId = linkCallId) => join({ role: 'customer', callId })}
+          joining={status === 'joining'}
+          server={server}
+          error={error}
+        />
+      </>
     )
   }
 
@@ -350,8 +363,8 @@ export default function App() {
     const reason = {
       ended: `${who} ended the call`,
       'grace-expired': `${who} lost connection`,
-      moved: 'The Call continued in another tab.',
-    }[ended.reason] ?? 'The Call ended while you were away.'
+      moved: 'The Call continued in another tab',
+    }[ended.reason] ?? 'The Call ended while you were away'
     const startNew = () => {
       saveEnded(null)
       location.assign(location.pathname)
@@ -379,66 +392,72 @@ export default function App() {
   const canSendMessage = status !== 'waiting' && server === 'up'
 
   return (
-    <Container sx={{ py: 4 }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
-        <Box />
-        <Duration startedAt={callStartedAt} />
-        <Chip
-          label={STATUS_TEXT[status]}
-          variant="outlined"
-          role="status"
-          aria-live="polite"
-          color={status === 'connected' ? 'success' : 'default'}
-          sx={{ justifySelf: 'end' }}
-        />
-      </Box>
-      {status === 'audio-failed' && (
-        <Alert severity="warning" sx={{ mt: 3 }} action={<Button color="inherit" onClick={() => socket.emit('retry-audio')}>Retry audio</Button>}>
-          Audio couldn't connect. Chat and subtitles still work.
-        </Alert>
-      )}
-      {audioBlocked && (
-        <Alert severity="info" sx={{ mt: 3 }} action={<Button color="inherit" onClick={resumeAudio}>Resume audio</Button>}>
-          The browser paused the call audio after the reload.
-        </Alert>
-      )}
-      {role === 'agent' && status === 'waiting' && <CallLink link={callLink} copied={copied} onCopy={copyLink} />}
-      {/* The Agent is always on the left, so neither side's layout flips. */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 3 }}>
-        {tile('agent')}
-        {tile('customer')}
-      </Box>
-      <Paper variant="outlined" sx={{ mt: 2, p: 2, minHeight: 160, borderRadius: '16px' }}>
-        <Label>Transcript</Label>
-        <Transcript entries={transcript} names={ROLE_NAME} />
-      </Paper>
-      <Stack component="form" direction="row" spacing={1} sx={{ mt: 2 }} onSubmit={sendMessage}>
-        <TextField
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Type a message…"
-          fullWidth
-          size="small"
-          disabled={!canSendMessage}
-          slotProps={{ htmlInput: { maxLength: 1000, 'aria-label': 'Message' } }}
-        />
-        <Button type="submit" variant="contained" endIcon={<Send />} disabled={!canSendMessage || !draft.trim()} sx={{ flexShrink: 0 }}>
-          Send
-        </Button>
-      </Stack>
-      <Stack direction="row" spacing={2} sx={{ mt: 2, justifyContent: 'flex-end', alignItems: 'center' }}>
-        {stt === 'browser' && !subtitlesSupported && (
-          <Typography variant="body2" sx={{ color: 'text.secondary', mr: 'auto' }}>Subtitles not supported in this browser.</Typography>
+    <>
+      {statusLive}
+      <Container sx={{ py: 4 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
+          <Box />
+          <Duration startedAt={callStartedAt} />
+          <Chip
+            label={STATUS_TEXT[status]}
+            variant="outlined"
+            color={status === 'connected' ? 'success' : 'default'}
+            sx={{ justifySelf: 'end' }}
+          />
+        </Box>
+        {server !== 'up' && (
+          <Alert severity="warning" sx={{ mt: 3 }}>
+            Lost connection to the server. Trying again… Messages are paused until it's back.
+          </Alert>
         )}
-        <Button variant="outlined" size="large" onClick={toggleMute} startIcon={muted ? <MicOff /> : <Mic />}>
-          {muted ? 'Unmute' : 'Mute'}
-        </Button>
-        <Button variant="contained" size="large" color="error" onClick={endCall} startIcon={<CallEnd />}>
-          End call
-        </Button>
-      </Stack>
-      <audio ref={audioRef} />
-    </Container>
+        {status === 'audio-failed' && (
+          <Alert severity="warning" sx={{ mt: 3 }} action={<Button color="inherit" onClick={() => socket.emit('retry-audio')}>Retry audio</Button>}>
+            Audio couldn't connect. Chat and subtitles still work.
+          </Alert>
+        )}
+        {audioBlocked && (
+          <Alert severity="info" sx={{ mt: 3 }} action={<Button color="inherit" onClick={resumeAudio}>Resume audio</Button>}>
+            The browser paused the call audio after the reload.
+          </Alert>
+        )}
+        {role === 'agent' && status === 'waiting' && <CallLink link={callLink} copied={copied} onCopy={copyLink} />}
+        {/* The Agent is always on the left, so neither side's layout flips. */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 3 }}>
+          {tile('agent')}
+          {tile('customer')}
+        </Box>
+        <Paper variant="outlined" sx={{ mt: 2, p: 2, minHeight: 160, borderRadius: '16px' }}>
+          <Label>Transcript</Label>
+          <Transcript entries={transcript} names={ROLE_NAME} />
+        </Paper>
+        <Stack component="form" direction="row" spacing={1} sx={{ mt: 2 }} onSubmit={sendMessage}>
+          <TextField
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Type a message…"
+            fullWidth
+            size="small"
+            disabled={!canSendMessage}
+            slotProps={{ htmlInput: { maxLength: 1000, 'aria-label': 'Message' } }}
+          />
+          <Button type="submit" variant="contained" endIcon={<Send />} disabled={!canSendMessage || !draft.trim()} sx={{ flexShrink: 0 }}>
+            Send
+          </Button>
+        </Stack>
+        <Stack direction="row" spacing={2} sx={{ mt: 2, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {stt === 'browser' && !subtitlesSupported && (
+            <Typography variant="body2" sx={{ color: 'text.secondary', mr: 'auto' }}>Subtitles not supported in this browser.</Typography>
+          )}
+          <Button variant="outlined" size="large" onClick={toggleMute} startIcon={muted ? <MicOff /> : <Mic />}>
+            {muted ? 'Unmute' : 'Mute'}
+          </Button>
+          <Button variant="contained" size="large" color="error" onClick={endCall} startIcon={<CallEnd />} sx={endCallFill}>
+            End call
+          </Button>
+        </Stack>
+        <audio ref={audioRef} />
+      </Container>
+    </>
   )
 }
 

@@ -12,7 +12,7 @@ function callIdFrom(text) {
 
 function RoleAvatar({ role, size = 44 }) {
   return (
-    <Avatar sx={{ width: size, height: size, fontSize: size * 0.42, bgcolor: `${role}.main`, color: 'background.default' }}>
+    <Avatar aria-hidden sx={{ width: size, height: size, fontSize: size * 0.42, bgcolor: `${role}.main`, color: 'background.default' }}>
       {role === 'agent' ? 'A' : 'C'}
     </Avatar>
   )
@@ -102,6 +102,7 @@ export default function Landing({ invited, onStart, onJoin, joining, server, err
               helperText={joinError}
               fullWidth
               size="small"
+              slotProps={{ formHelperText: { role: 'alert' } }}
             />
             <Button type="submit" variant="contained" disabled={disabled} sx={{ flexShrink: 0, height: 40, ...roleButton('customer') }}>
               Join
