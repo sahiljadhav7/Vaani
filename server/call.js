@@ -4,7 +4,7 @@ export const TEXT_MAX = 1000; // longest Message, Utterance or Subtitle
 
 // The one Call: its two Seats and when it started. Knows nothing about Socket.io.
 export function createCall() {
-  const seats = { customer: null, agent: null }; // role -> { sessionId, online } of the Participant holding it
+  const seats = { customer: null, agent: null }; // role -> { sessionId, online, fellBack } of the Participant holding it
   let callStartedAt = null;
   let offerer = null; // the role that got peer-joined and sends every offer, including Retry audio's
   const transcript = []; // the last TRANSCRIPT_MAX Messages and Utterances, oldest first
@@ -18,7 +18,7 @@ export function createCall() {
     if (seats[OTHER[role]]?.sessionId === sessionId) return { ok: false, error: 'invalid' };
 
     // A rejoin with the same sessionId takes the Seat back, even if its old connection still looks online.
-    seats[role] = { sessionId, online: true };
+    seats[role] = { ...seats[role], sessionId, online: true };
     const other = seats[OTHER[role]];
     if (other && callStartedAt === null) callStartedAt = Date.now();
     if (other?.online) offerer = OTHER[role];
@@ -43,5 +43,14 @@ export function createCall() {
     return entry;
   }
 
-  return { join, disconnect, addEntry, get offerer() { return offerer; } };
+  // Sarvam failed for this Participant: browser speech for the rest of the Call, refreshes included.
+  function fallBack(role) {
+    if (seats[role]) seats[role].fellBack = true;
+  }
+
+  function hasFallenBack(role) {
+    return !!seats[role]?.fellBack;
+  }
+
+  return { join, disconnect, addEntry, fallBack, hasFallenBack, get offerer() { return offerer; } };
 }

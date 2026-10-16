@@ -57,5 +57,13 @@ export function createCalls(onGraceExpired = () => {}) {
     return calls.get(callId)?.call.offerer ?? null;
   }
 
-  return { join, leave, end, addEntry, offerer, get size() { return calls.size; } };
+  function fallBack(callId, role) {
+    calls.get(callId)?.call.fallBack(role);
+  }
+
+  function hasFallenBack(callId, role) {
+    return calls.get(callId)?.call.hasFallenBack(role) ?? false;
+  }
+
+  return { join, leave, end, addEntry, offerer, fallBack, hasFallenBack, get size() { return calls.size; } };
 }

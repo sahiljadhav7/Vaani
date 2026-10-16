@@ -147,3 +147,14 @@ test('an Utterance joins the same Transcript as a Message, in time order', (t) =
   assert.deepEqual(spoken, { id: 2, kind: 'utterance', from: 'agent', text: 'aapka order kal tak aa jayega', at: 1500 });
   assert.deepEqual(call.join('agent', 'tab-1').transcript, [typed, spoken]);
 });
+
+test('a Participant who fell back to browser speech stays there after a refresh, and only they do', () => {
+  const call = createCall();
+  call.join('agent', 'tab-1');
+  call.join('customer', 'tab-2');
+  call.fallBack('customer');
+  call.disconnect('customer', 'tab-2');
+  call.join('customer', 'tab-2');
+  assert.equal(call.hasFallenBack('customer'), true);
+  assert.equal(call.hasFallenBack('agent'), false);
+});

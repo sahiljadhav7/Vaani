@@ -151,3 +151,16 @@ test('the offerer is looked up by Call, and an ended or unknown Call has none', 
   assert.equal(calls.offerer(callId), null);
   assert.equal(calls.offerer('nope'), null);
 });
+
+test('a fallback is kept per Call, and an ended or unknown Call ignores it', () => {
+  const calls = createCalls();
+  const a = calls.join(undefined, 'agent', 'tab-1').callId;
+  const b = calls.join(undefined, 'agent', 'tab-2').callId;
+  calls.fallBack(a, 'agent');
+  assert.equal(calls.hasFallenBack(a, 'agent'), true);
+  assert.equal(calls.hasFallenBack(b, 'agent'), false);
+  calls.end(a);
+  calls.fallBack(a, 'agent');
+  calls.fallBack('nope', 'agent');
+  assert.equal(calls.hasFallenBack(a, 'agent'), false);
+});

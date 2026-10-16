@@ -5,6 +5,7 @@ import { createCalls } from './calls.js';
 import { isSignal } from './signal.js';
 import { isMute } from './mute.js';
 import { isSubtitle } from './subtitle.js';
+import { createSarvamStream, isAudioChunk } from './sarvam.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -16,6 +17,7 @@ const io = new Server(httpServer, {
   cors: { origin: [process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'] },
 });
 
+const SARVAM_KEY = process.env.SARVAM_API_KEY;
 const calls = createCalls((callId, role) => closeCall(callId, 'grace-expired', role));
 
 function roomSockets(callId) {
@@ -23,8 +25,16 @@ function roomSockets(callId) {
 }
 
 function release(s, callId) {
+  s.data.sarvam?.close();
   s.data = {};
   s.leave(callId);
+}
+
+// Both speech paths end here: interim text is the other side's live Subtitle, a final one becomes an Utterance.
+function relaySpeech(socket, callId, role, text, final) {
+  if (!final) return socket.to(callId).emit('subtitle', { from: role, text });
+  const entry = calls.addEntry(callId, 'utterance', role, text);
+  if (entry) io.to(callId).emit('transcript-entry', entry);
 }
 
 // The emit comes before release, or it reaches nobody.
@@ -54,10 +64,10 @@ io.on('connection', (socket) => {
     socket.data.callId = result.callId;
     socket.data.role = data.role;
     socket.data.sessionId = data.sessionId;
+    socket.data.stt = SARVAM_KEY && !calls.hasFallenBack(result.callId, data.role) ? 'sarvam' : 'browser';
     // One room per Call, holding only its Seat holders, so tabs still on the landing page get no Call events.
     socket.join(result.callId);
-    // shortcut: always the browser speech path; ticket 09 sends 'sarvam' when the key works.
-    ack({ ...result, stt: 'browser' });
+    ack({ ...result, stt: socket.data.stt });
     if (result.peerPresent) socket.to(result.callId).emit('peer-joined', { callStartedAt: result.callStartedAt });
   });
 
@@ -79,13 +89,28 @@ io.on('connection', (socket) => {
     if (entry) io.to(socket.data.callId).emit('transcript-entry', entry);
   });
 
-  // Browser speech path: interim text is the other side's live Subtitle, a final one becomes an Utterance.
   socket.on('subtitle', (data) => {
     const { callId, role } = socket.data;
     if (!role || !isSubtitle(data)) return;
-    if (!data.final) return socket.to(callId).emit('subtitle', { from: role, text: data.text });
-    const entry = calls.addEntry(callId, 'utterance', role, data.text);
-    if (entry) io.to(callId).emit('transcript-entry', entry);
+    relaySpeech(socket, callId, role, data.text, data.final);
+  });
+
+  // Sarvam path: this Participant's mic, forwarded to their own Sarvam socket.
+  // shortcut: no rate limit, so a client sending faster than real time spends credit faster; add a per-socket budget before going public.
+  socket.on('stt-audio', (chunk) => {
+    const { callId, role, stt } = socket.data;
+    if (stt !== 'sarvam' || !isAudioChunk(chunk)) return;
+    socket.data.sarvam ??= createSarvamStream({
+      key: SARVAM_KEY,
+      onText: (text, final) => relaySpeech(socket, callId, role, text, final),
+      onFail: () => {
+        console.log('[sarvam] browser speech from now on', callId, role);
+        calls.fallBack(callId, role);
+        socket.data.stt = 'browser';
+        socket.emit('stt-fallback');
+      },
+    });
+    socket.data.sarvam.send(chunk);
   });
 
   // Only the offerer restarts ICE, so two offers never cross; if it pressed Retry itself, it gets this back.
@@ -106,6 +131,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', (reason) => {
     console.log('disconnected', socket.id, reason);
     const { callId, role, sessionId } = socket.data;
+    socket.data.sarvam?.close();
     if (role && calls.leave(callId, role, sessionId)) socket.to(callId).emit('peer-reconnecting');
   });
 });
