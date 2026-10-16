@@ -3,16 +3,15 @@ import { socket } from './socket.js'
 
 const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition
 export const subtitlesSupported = !!Recognition
-export const LANGUAGES = { 'en-IN': 'English', 'hi-IN': 'हिन्दी', 'mr-IN': 'मराठी' }
 // Retrying these would only loop: the mic or the speech service is blocked.
 const FATAL = ['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported']
 
 // Browser speech path (ADR 0001): recognises your own mic and sends it as live Subtitles and final Utterances.
-export function useSubtitles(active, lang) {
+export function useSubtitles(active) {
   useEffect(() => {
     if (!active || !Recognition) return
     const rec = new Recognition()
-    rec.lang = lang
+    rec.lang = 'en-IN'
     rec.continuous = true
     rec.interimResults = true
     const send = (text, final) => socket.emit('subtitle', { text, final })
@@ -55,8 +54,31 @@ export function useSubtitles(active, lang) {
       stopped = true
       clearTimeout(restartTimer)
       rec.abort()
-      // A half-spoken Subtitle would otherwise hang on the other screen after Mute or a language switch.
+      // A half-spoken Subtitle would otherwise hang on the other screen after Mute.
       send('', false)
     }
-  }, [active, lang])
+  }, [active])
+}
+
+// Sarvam path (ADR 0001): streams your mic to the server, which sends back the Subtitles.
+// Torn down while Muted, since Sarvam bills every second of audio it gets, silence included.
+export function useSarvamAudio(active, mic) {
+  useEffect(() => {
+    if (!active || !mic) return
+    const ctx = new AudioContext()
+    // After a reload there was no click yet, so the browser may hold the context suspended until one.
+    const resume = () => ctx.resume().catch(() => {})
+    document.addEventListener('pointerdown', resume, { once: true })
+    ctx.audioWorklet.addModule(new URL('./pcm16k.worklet.js', import.meta.url)).then(() => {
+      if (ctx.state === 'closed') return
+      // No outputs: the browser still runs it, and nothing is played back.
+      const node = new AudioWorkletNode(ctx, 'pcm16k', { numberOfOutputs: 0 })
+      node.port.onmessage = (e) => socket.emit('stt-audio', e.data)
+      ctx.createMediaStreamSource(mic).connect(node)
+    }).catch((err) => console.warn('[stt-audio]', err))
+    return () => {
+      document.removeEventListener('pointerdown', resume)
+      ctx.close()
+    }
+  }, [active, mic])
 }

@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { Alert, Box, Button, Chip, Container, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Container, Paper, Stack, TextField, Typography } from '@mui/material'
 import Mic from '@mui/icons-material/Mic'
 import MicOff from '@mui/icons-material/MicOff'
 import CallEnd from '@mui/icons-material/CallEnd'
@@ -7,7 +7,7 @@ import Send from '@mui/icons-material/Send'
 import { socket } from './socket.js'
 import Landing from './Landing.jsx'
 import { Duration, Label, Tile, Transcript } from './Call.jsx'
-import { LANGUAGES, subtitlesSupported, useSubtitles } from './subtitles.js'
+import { subtitlesSupported, useSarvamAudio, useSubtitles } from './subtitles.js'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
 const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected', 'audio-failed': 'Audio Failed', reconnecting: 'Reconnecting…' }
@@ -53,7 +53,6 @@ export default function App() {
   const [transcript, setTranscript] = useState([])
   const [draft, setDraft] = useState('')
   const [stt, setStt] = useState(null) // 'browser' | 'sarvam', from the join ack
-  const [lang, setLang] = useState('en-IN')
   const [peerSubtitle, setPeerSubtitle] = useState('')
   const [error, setError] = useState(null)
   const pcRef = useRef(null) // the RTCPeerConnection for this Call
@@ -139,6 +138,8 @@ export default function App() {
     // The server sends only the other Participant's Subtitle.
     const onSubtitle = ({ text }) => setPeerSubtitle(text)
     const onEnded = (data) => onCallEnded(data)
+    // Sarvam failed for this Participant: browser speech from now on.
+    const onSttFallback = () => setStt('browser')
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('connect_error', onConnectError)
@@ -150,6 +151,7 @@ export default function App() {
     socket.on('transcript-entry', onEntry)
     socket.on('subtitle', onSubtitle)
     socket.on('call-ended', onEnded)
+    socket.on('stt-fallback', onSttFallback)
     if (socket.connected) onConnect() // it may have connected before we subscribed
     return () => {
       socket.off('connect', onConnect)
@@ -163,6 +165,7 @@ export default function App() {
       socket.off('transcript-entry', onEntry)
       socket.off('subtitle', onSubtitle)
       socket.off('call-ended', onEnded)
+      socket.off('stt-fallback', onSttFallback)
     }
   }, [])
 
@@ -308,7 +311,9 @@ export default function App() {
 
   const browserSpeech = stt === 'browser' && subtitlesSupported
   // Not while Waiting: nobody is there to hear it, and it would land in the Transcript.
-  useSubtitles(browserSpeech && ['connecting', 'connected', 'audio-failed', 'reconnecting'].includes(status) && !muted, lang)
+  const micLive = ['connecting', 'connected', 'audio-failed', 'reconnecting'].includes(status) && !muted
+  useSubtitles(browserSpeech && micLive)
+  useSarvamAudio(stt === 'sarvam' && micLive, mic)
 
   if (status === 'idle' || status === 'joining') {
     return (
@@ -409,11 +414,6 @@ export default function App() {
       <Stack direction="row" spacing={2} sx={{ mt: 2, justifyContent: 'flex-end', alignItems: 'center' }}>
         {stt === 'browser' && !subtitlesSupported && (
           <Typography variant="body2" sx={{ color: 'text.secondary', mr: 'auto' }}>Subtitles not supported in this browser.</Typography>
-        )}
-        {browserSpeech && (
-          <TextField select label="Subtitle language" size="small" value={lang} onChange={(e) => setLang(e.target.value)} sx={{ minWidth: 180 }}>
-            {Object.entries(LANGUAGES).map(([code, name]) => <MenuItem key={code} value={code}>{name}</MenuItem>)}
-          </TextField>
         )}
         <Button variant="outlined" size="large" onClick={toggleMute} startIcon={muted ? <MicOff /> : <Mic />}>
           {muted ? 'Unmute' : 'Mute'}

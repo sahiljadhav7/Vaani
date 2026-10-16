@@ -18,4 +18,8 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    files: ['**/*.worklet.js'],
+    languageOptions: { globals: globals.audioWorklet },
+  },
 ])
