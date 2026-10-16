@@ -9,7 +9,7 @@ import Landing from './Landing.jsx'
 import { Duration, Label, Tile, Transcript } from './Call.jsx'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
-const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected', reconnecting: 'Reconnecting…' }
+const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected', 'audio-failed': 'Audio Failed', reconnecting: 'Reconnecting…' }
 
 // The Call this tab is in, as { callId, role, sessionId, muted }. sessionStorage is per tab and survives a reload.
 function loadCall() {
@@ -37,7 +37,7 @@ function hangUp(pc) {
 
 export default function App() {
   const [server, setServer] = useState(socket.connected ? 'up' : 'pending') // up | pending | down
-  // idle | joining | waiting | connecting | connected | reconnecting | ended
+  // idle | joining | waiting | connecting | connected | audio-failed | reconnecting | ended
   const [status, setStatus] = useState(savedOnLoad ? 'joining' : 'idle')
   const [role, setRole] = useState(null) // set by a successful join
   const [callId, setCallId] = useState(null)
@@ -107,6 +107,17 @@ export default function App() {
     const onJoined = (data) => {
       signals = signals.then(() => onPeerJoined(data)).catch((err) => console.error('[peer-joined]', err))
     }
+    const restartAudio = async () => {
+      const pc = pcRef.current
+      // Both sides pressed Retry: the first restart is still waiting for its answer.
+      if (pc.signalingState !== 'stable') return
+      pc.restartIce()
+      await pc.setLocalDescription(await pc.createOffer())
+      socket.emit('signal', { description: pc.localDescription })
+    }
+    const onRetryAudio = () => {
+      signals = signals.then(restartAudio).catch((err) => console.error('[retry-audio]', err))
+    }
     const onPeerMuted = ({ muted }) => setPeerMuted(muted)
     const onPeerReconnecting = () => setStatus('reconnecting')
     const onTranscriptEntry = (entry) => setTranscript((prev) => [...prev, entry])
@@ -117,6 +128,7 @@ export default function App() {
     socket.on('peer-joined', onJoined)
     socket.on('signal', onSignal)
     socket.on('peer-muted', onPeerMuted)
+    socket.on('retry-audio', onRetryAudio)
     socket.on('peer-reconnecting', onPeerReconnecting)
     socket.on('transcript-entry', onTranscriptEntry)
     socket.on('call-ended', onEnded)
@@ -128,6 +140,7 @@ export default function App() {
       socket.off('peer-joined', onJoined)
       socket.off('signal', onSignal)
       socket.off('peer-muted', onPeerMuted)
+      socket.off('retry-audio', onRetryAudio)
       socket.off('peer-reconnecting', onPeerReconnecting)
       socket.off('transcript-entry', onTranscriptEntry)
       socket.off('call-ended', onEnded)
@@ -152,6 +165,10 @@ export default function App() {
     pc.ontrack = (event) => setPeerStream(event.streams[0])
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') setStatus('connected')
+      // Moves both screens off Audio Failed once a Retry really restarts ICE, whoever pressed it.
+      if (pc.connectionState === 'connecting') setStatus((s) => (s === 'audio-failed' ? 'connecting' : s))
+      // A peer in its Grace Period fails the connection too; that stays Reconnecting.
+      if (pc.connectionState === 'failed') setStatus((s) => (s === 'reconnecting' ? s : 'audio-failed'))
     }
     pcRef.current = pc
     return pc
@@ -330,6 +347,11 @@ export default function App() {
           sx={{ justifySelf: 'end' }}
         />
       </Box>
+      {status === 'audio-failed' && (
+        <Alert severity="warning" sx={{ mt: 3 }} action={<Button color="inherit" onClick={() => socket.emit('retry-audio')}>Retry audio</Button>}>
+          Audio couldn't connect. Chat and subtitles still work.
+        </Alert>
+      )}
       {audioBlocked && (
         <Alert severity="info" sx={{ mt: 3 }} action={<Button color="inherit" onClick={resumeAudio}>Resume audio</Button>}>
           The browser paused the call audio after the reload.
