@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { Avatar, Card, Chip, Stack, Typography } from '@mui/material'
+import { useEffect, useRef, useState } from 'react'
+import { Avatar, Card, Chip, List, ListItem, Stack, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import MicOff from '@mui/icons-material/MicOff'
+import Keyboard from '@mui/icons-material/Keyboard'
 
 // True while the stream is louder than background noise.
 function useSpeaking(stream) {
@@ -95,5 +96,29 @@ export function Label({ children }) {
     <Typography sx={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'text.disabled' }}>
       {children}
     </Typography>
+  )
+}
+
+export function Transcript({ entries, names }) {
+  const listRef = useRef(null)
+  useEffect(() => {
+    // Scroll the list itself; scrollIntoView would also jump the whole page.
+    listRef.current.scrollTop = listRef.current.scrollHeight
+  }, [entries])
+  return (
+    <List ref={listRef} role="log" aria-label="Transcript" dense sx={{ maxHeight: 280, overflowY: 'auto' }}>
+      {entries.map((entry) => (
+        <ListItem key={entry.id} disableGutters sx={{ gap: 2, alignItems: 'baseline' }}>
+          <Typography variant="body2" sx={{ color: `${entry.from}.main`, minWidth: 72, flexShrink: 0 }}>
+            {names[entry.from]}
+          </Typography>
+          <Typography variant="body2" component="time" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+            {new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Typography>
+          <Typography variant="body2" sx={{ overflowWrap: 'anywhere', flexGrow: 1 }}>{entry.text}</Typography>
+          {entry.kind === 'message' && <Keyboard fontSize="small" titleAccess="Typed" sx={{ color: 'text.secondary', alignSelf: 'center' }} />}
+        </ListItem>
+      ))}
+    </List>
   )
 }

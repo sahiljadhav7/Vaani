@@ -3,9 +3,10 @@ import { Alert, Box, Button, Chip, Container, Paper, Stack, TextField, Typograph
 import Mic from '@mui/icons-material/Mic'
 import MicOff from '@mui/icons-material/MicOff'
 import CallEnd from '@mui/icons-material/CallEnd'
+import Send from '@mui/icons-material/Send'
 import { socket } from './socket.js'
 import Landing from './Landing.jsx'
-import { Duration, Label, Tile } from './Call.jsx'
+import { Duration, Label, Tile, Transcript } from './Call.jsx'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
 const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected', reconnecting: 'Reconnecting…' }
@@ -48,6 +49,8 @@ export default function App() {
   const [ended, setEnded] = useState(null) // { reason, by } from call-ended; empty when you came back too late
   const [audioBlocked, setAudioBlocked] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [transcript, setTranscript] = useState([])
+  const [draft, setDraft] = useState('')
   const [error, setError] = useState(null)
   const pcRef = useRef(null) // the RTCPeerConnection for this Call
   const audioRef = useRef(null) // the <audio> element that plays the other Participant
@@ -106,6 +109,7 @@ export default function App() {
     }
     const onPeerMuted = ({ muted }) => setPeerMuted(muted)
     const onPeerReconnecting = () => setStatus('reconnecting')
+    const onTranscriptEntry = (entry) => setTranscript((prev) => [...prev, entry])
     const onEnded = (data) => onCallEnded(data)
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
@@ -114,6 +118,7 @@ export default function App() {
     socket.on('signal', onSignal)
     socket.on('peer-muted', onPeerMuted)
     socket.on('peer-reconnecting', onPeerReconnecting)
+    socket.on('transcript-entry', onTranscriptEntry)
     socket.on('call-ended', onEnded)
     if (socket.connected) onConnect() // it may have connected before we subscribed
     return () => {
@@ -124,6 +129,7 @@ export default function App() {
       socket.off('signal', onSignal)
       socket.off('peer-muted', onPeerMuted)
       socket.off('peer-reconnecting', onPeerReconnecting)
+      socket.off('transcript-entry', onTranscriptEntry)
       socket.off('call-ended', onEnded)
     }
   }, [])
@@ -215,6 +221,8 @@ export default function App() {
     saveCall({ callId: res.callId, role, sessionId, muted: wasMuted })
     setCallId(res.callId)
     setCallStartedAt(res.callStartedAt)
+    // Replaced, not appended: a rejoin without a reload still holds the old lines.
+    setTranscript(res.transcript)
     // callStartedAt is set once both Seats were filled, so an absent Participant is in a Grace Period.
     setStatus(res.peerPresent ? 'connecting' : res.callStartedAt ? 'reconnecting' : 'waiting')
     // After the server's peer-joined, so the other side's reset of the muted icon comes first.
@@ -228,6 +236,15 @@ export default function App() {
     setMuted(next)
     saveCall({ ...loadCall(), muted: next })
     socket.emit('mute', { muted: next })
+  }
+
+  // The line shows up when the server sends it back, with its id and time.
+  function sendMessage(e) {
+    e.preventDefault()
+    const text = draft.trim()
+    if (!text) return
+    socket.emit('chat-message', { text })
+    setDraft('')
   }
 
   function finish({ reason, by }) {
@@ -296,6 +313,9 @@ export default function App() {
     )
   }
 
+  // Reconnecting still allows it: the other side gets those lines when they rejoin.
+  const canSendMessage = status !== 'waiting' && server === 'up'
+
   return (
     <Container sx={{ py: 4 }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
@@ -323,7 +343,22 @@ export default function App() {
       </Box>
       <Paper variant="outlined" sx={{ mt: 2, p: 2, minHeight: 160, borderRadius: '16px' }}>
         <Label>Transcript</Label>
+        <Transcript entries={transcript} names={ROLE_NAME} />
       </Paper>
+      <Stack component="form" direction="row" spacing={1} sx={{ mt: 2 }} onSubmit={sendMessage}>
+        <TextField
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Type a message…"
+          fullWidth
+          size="small"
+          disabled={!canSendMessage}
+          slotProps={{ htmlInput: { maxLength: 1000, 'aria-label': 'Message' } }}
+        />
+        <Button type="submit" variant="contained" endIcon={<Send />} disabled={!canSendMessage || !draft.trim()} sx={{ flexShrink: 0 }}>
+          Send
+        </Button>
+      </Stack>
       <Stack direction="row" spacing={2} sx={{ mt: 2, justifyContent: 'flex-end' }}>
         <Button variant="outlined" size="large" onClick={toggleMute} startIcon={muted ? <MicOff /> : <Mic />}>
           {muted ? 'Unmute' : 'Mute'}
