@@ -3,6 +3,7 @@ import { Avatar, Card, Chip, List, ListItem, Stack, Typography } from '@mui/mate
 import { alpha } from '@mui/material/styles'
 import MicOff from '@mui/icons-material/MicOff'
 import Keyboard from '@mui/icons-material/Keyboard'
+import Mic from '@mui/icons-material/Mic'
 
 // True while the stream is louder than background noise.
 function useSpeaking(stream) {
@@ -34,7 +35,7 @@ function useSpeaking(stream) {
   return !!stream && speaking
 }
 
-export function Tile({ role, name, you, present, reconnecting, muted, stream }) {
+export function Tile({ role, name, you, present, reconnecting, muted, stream, subtitle }) {
   const speaking = useSpeaking(present ? stream : null)
   const tint = (theme, a) => alpha(theme.palette[role].main, a)
   return (
@@ -66,6 +67,12 @@ export function Tile({ role, name, you, present, reconnecting, muted, stream }) 
         <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'error.main' }}>
           <MicOff fontSize="small" />
           <Typography variant="body2">Muted</Typography>
+        </Stack>
+      )}
+      {present && subtitle && (
+        <Stack sx={{ alignItems: 'center', mt: 2 }}>
+          <Typography variant="h6" sx={{ textAlign: 'center', fontWeight: 400, overflowWrap: 'anywhere' }}>“{subtitle}”</Typography>
+          <Label>Live</Label>
         </Stack>
       )}
     </Card>
@@ -116,7 +123,9 @@ export function Transcript({ entries, names }) {
             {new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Typography>
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere', flexGrow: 1 }}>{entry.text}</Typography>
-          {entry.kind === 'message' && <Keyboard fontSize="small" titleAccess="Typed" sx={{ color: 'text.secondary', alignSelf: 'center' }} />}
+          {entry.kind === 'message'
+            ? <Keyboard fontSize="small" titleAccess="Typed" sx={{ color: 'text.secondary', alignSelf: 'center' }} />
+            : <Mic fontSize="small" titleAccess="Spoken" sx={{ color: 'text.secondary', alignSelf: 'center' }} />}
         </ListItem>
       ))}
     </List>

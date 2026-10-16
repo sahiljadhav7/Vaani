@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { Alert, Box, Button, Chip, Container, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Container, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
 import Mic from '@mui/icons-material/Mic'
 import MicOff from '@mui/icons-material/MicOff'
 import CallEnd from '@mui/icons-material/CallEnd'
@@ -7,6 +7,7 @@ import Send from '@mui/icons-material/Send'
 import { socket } from './socket.js'
 import Landing from './Landing.jsx'
 import { Duration, Label, Tile, Transcript } from './Call.jsx'
+import { LANGUAGES, subtitlesSupported, useSubtitles } from './subtitles.js'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
 const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected', 'audio-failed': 'Audio Failed', reconnecting: 'Reconnecting…' }
@@ -51,6 +52,9 @@ export default function App() {
   const [copied, setCopied] = useState(false)
   const [transcript, setTranscript] = useState([])
   const [draft, setDraft] = useState('')
+  const [stt, setStt] = useState(null) // 'browser' | 'sarvam', from the join ack
+  const [lang, setLang] = useState('en-IN')
+  const [peerSubtitle, setPeerSubtitle] = useState('')
   const [error, setError] = useState(null)
   const pcRef = useRef(null) // the RTCPeerConnection for this Call
   const audioRef = useRef(null) // the <audio> element that plays the other Participant
@@ -66,12 +70,17 @@ export default function App() {
     setCallStartedAt(callStartedAt)
     setStatus('connecting')
     setPeerMuted(false)
+    setPeerSubtitle('')
     socket.emit('mute', { muted })
     // The newcomer's side of any old connection is gone, so start a fresh one.
     pcRef.current?.close()
     const pc = createPeer(mic)
     await pc.setLocalDescription(await pc.createOffer())
     socket.emit('signal', { description: pc.localDescription })
+  })
+  const onTranscriptEntry = useEffectEvent((entry) => {
+    setTranscript((prev) => [...prev, entry])
+    if (entry.kind === 'utterance' && entry.from !== role) setPeerSubtitle('')
   })
   const onCallEnded = useEffectEvent((data) => finish(data))
   const onTakenOver = useEffectEvent(() => finish({ reason: 'moved' }))
@@ -118,9 +127,17 @@ export default function App() {
     const onRetryAudio = () => {
       signals = signals.then(restartAudio).catch((err) => console.error('[retry-audio]', err))
     }
-    const onPeerMuted = ({ muted }) => setPeerMuted(muted)
-    const onPeerReconnecting = () => setStatus('reconnecting')
-    const onTranscriptEntry = (entry) => setTranscript((prev) => [...prev, entry])
+    const onPeerMuted = ({ muted }) => {
+      setPeerMuted(muted)
+      if (muted) setPeerSubtitle('')
+    }
+    const onPeerReconnecting = () => {
+      setStatus('reconnecting')
+      setPeerSubtitle('')
+    }
+    const onEntry = (entry) => onTranscriptEntry(entry)
+    // The server sends only the other Participant's Subtitle.
+    const onSubtitle = ({ text }) => setPeerSubtitle(text)
     const onEnded = (data) => onCallEnded(data)
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
@@ -130,7 +147,8 @@ export default function App() {
     socket.on('peer-muted', onPeerMuted)
     socket.on('retry-audio', onRetryAudio)
     socket.on('peer-reconnecting', onPeerReconnecting)
-    socket.on('transcript-entry', onTranscriptEntry)
+    socket.on('transcript-entry', onEntry)
+    socket.on('subtitle', onSubtitle)
     socket.on('call-ended', onEnded)
     if (socket.connected) onConnect() // it may have connected before we subscribed
     return () => {
@@ -142,7 +160,8 @@ export default function App() {
       socket.off('peer-muted', onPeerMuted)
       socket.off('retry-audio', onRetryAudio)
       socket.off('peer-reconnecting', onPeerReconnecting)
-      socket.off('transcript-entry', onTranscriptEntry)
+      socket.off('transcript-entry', onEntry)
+      socket.off('subtitle', onSubtitle)
       socket.off('call-ended', onEnded)
     }
   }, [])
@@ -240,6 +259,7 @@ export default function App() {
     setCallStartedAt(res.callStartedAt)
     // Replaced, not appended: a rejoin without a reload still holds the old lines.
     setTranscript(res.transcript)
+    setStt(res.stt)
     // callStartedAt is set once both Seats were filled, so an absent Participant is in a Grace Period.
     setStatus(res.peerPresent ? 'connecting' : res.callStartedAt ? 'reconnecting' : 'waiting')
     // After the server's peer-joined, so the other side's reset of the muted icon comes first.
@@ -286,6 +306,10 @@ export default function App() {
     navigator.clipboard?.writeText(callLink).then(() => setCopied(true), () => {})
   }
 
+  const browserSpeech = stt === 'browser' && subtitlesSupported
+  // Not while Waiting: nobody is there to hear it, and it would land in the Transcript.
+  useSubtitles(browserSpeech && ['connecting', 'connected', 'audio-failed', 'reconnecting'].includes(status) && !muted, lang)
+
   if (status === 'idle' || status === 'joining') {
     return (
       <Landing
@@ -326,6 +350,7 @@ export default function App() {
         reconnecting={!you && status === 'reconnecting'}
         muted={you ? muted : peerMuted}
         stream={you ? mic : peerStream}
+        subtitle={you ? '' : peerSubtitle}
       />
     )
   }
@@ -381,7 +406,15 @@ export default function App() {
           Send
         </Button>
       </Stack>
-      <Stack direction="row" spacing={2} sx={{ mt: 2, justifyContent: 'flex-end' }}>
+      <Stack direction="row" spacing={2} sx={{ mt: 2, justifyContent: 'flex-end', alignItems: 'center' }}>
+        {stt === 'browser' && !subtitlesSupported && (
+          <Typography variant="body2" sx={{ color: 'text.secondary', mr: 'auto' }}>Subtitles not supported in this browser.</Typography>
+        )}
+        {browserSpeech && (
+          <TextField select label="Subtitle language" size="small" value={lang} onChange={(e) => setLang(e.target.value)} sx={{ minWidth: 180 }}>
+            {Object.entries(LANGUAGES).map(([code, name]) => <MenuItem key={code} value={code}>{name}</MenuItem>)}
+          </TextField>
+        )}
         <Button variant="outlined" size="large" onClick={toggleMute} startIcon={muted ? <MicOff /> : <Mic />}>
           {muted ? 'Unmute' : 'Mute'}
         </Button>
