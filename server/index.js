@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import { createCall } from './call.js';
+import { isSignal } from './signal.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -29,6 +30,12 @@ io.on('connection', (socket) => {
     // shortcut: always the browser speech path; ticket 09 sends 'sarvam' when the key works.
     ack({ ...result, stt: 'browser' });
     if (result.peerPresent) socket.to('call').emit('peer-joined', { callStartedAt: result.callStartedAt });
+  });
+
+  // Offer / answer / ICE, passed on unchanged to the other Participant.
+  socket.on('signal', (data) => {
+    if (!socket.data.role || !isSignal(data)) return; // only Seat holders, only valid signals
+    socket.to('call').emit('signal', data);
   });
 
   socket.on('disconnect', (reason) => {

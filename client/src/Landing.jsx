@@ -5,7 +5,7 @@ export default function Landing({ onJoin, joining, server, error }) {
   return (
     <Container maxWidth="sm" sx={{ py: 10, textAlign: 'center' }}>
       <Typography variant="h3" component="h1" gutterBottom>Voice Chat</Typography>
-      <Stack direction="row" spacing={2} justifyContent="center" sx={{ my: 4 }}>
+      <Stack direction="row" spacing={2} sx={{ my: 4, justifyContent: 'center' }}>
         <Button variant="contained" size="large" disabled={disabled} onClick={() => onJoin('customer')}>
           Join as Customer
         </Button>

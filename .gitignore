@@ -18,7 +18,9 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Docs: keep local only
+# Docs and tooling: keep local only
 *.md
 /Docs/
 /.scratch/
+/.archify
+/diagrams
