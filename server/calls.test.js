@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCalls } from './calls.js';
+import { createCalls, MAX_CALLS } from './calls.js';
 
 test('an Agent without a callId starts a new Call and waits in it', () => {
   const calls = createCalls();
@@ -163,4 +163,13 @@ test('a fallback is kept per Call, and an ended or unknown Call ignores it', () 
   calls.fallBack(a, 'agent');
   calls.fallBack('nope', 'agent');
   assert.equal(calls.hasFallenBack(a, 'agent'), false);
+});
+
+test('past MAX_CALLS live Calls a new Call is refused as busy, and an ended Call frees a place', () => {
+  const calls = createCalls();
+  const ids = Array.from({ length: MAX_CALLS }, (_, i) => calls.join(undefined, 'agent', `tab-${i}`).callId);
+  assert.deepEqual(calls.join(undefined, 'agent', 'tab-x'), { ok: false, error: 'busy' });
+  assert.equal(calls.join(ids[0], 'customer', 'tab-c').ok, true); // joining an existing Call still works
+  calls.end(ids[0]);
+  assert.equal(calls.join(undefined, 'agent', 'tab-x').ok, true);
 });

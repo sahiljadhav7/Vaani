@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { createCall } from './call.js';
 
 const GRACE_PERIOD_MS = 15_000;
+// Bounds how many Sarvam streams can run at once, since anyone with the URL can start a Call.
+// shortcut: Waiting Calls never time out, so 20 open tabs block new Calls; give Waiting an end time if that happens.
+export const MAX_CALLS = 20;
 
 // Every live Call by its id (ADR 0002). onGraceExpired(callId, role) runs after a Grace Period ends the Call.
 export function createCalls(onGraceExpired = () => {}) {
@@ -13,6 +16,7 @@ export function createCalls(onGraceExpired = () => {}) {
     if (callId === undefined) {
       // No link: an Agent starts a new Call and takes its Seat in the same step, so no empty Call is left behind.
       if (role !== 'agent') return { ok: false, error: 'invalid' };
+      if (calls.size >= MAX_CALLS) return { ok: false, error: 'busy' };
       const id = randomUUID();
       const call = createCall();
       const result = call.join(role, sessionId);

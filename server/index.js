@@ -7,6 +7,7 @@ import { isMute } from './mute.js';
 import { isSubtitle } from './subtitle.js';
 import { createSarvamStream, isAudioChunk } from './sarvam.js';
 import { isTranscript, summarise } from './summary.js';
+import { createRateLimit } from './rateLimit.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -54,9 +55,11 @@ app.use('/summary', (req, res, next) => {
 });
 
 // A Hindi Transcript at the size cap (200 entries of 1000 characters, 3 bytes each) is about 600 KB.
-// shortcut: no rate limit, so anyone who finds the URL can spend Gemini credit; add one before going public.
+// shortcut: one budget shared by everyone, since behind Render's proxy the client IP can't be trusted; one person can use it all up.
+const allowSummary = createRateLimit(30, 60 * 60_000);
 app.post('/summary', express.json({ limit: '1mb' }), async (req, res) => {
   if (!isTranscript(req.body)) return res.status(400).json({ error: 'invalid' });
+  if (!allowSummary()) return res.status(429).json({ error: 'busy' });
   try {
     res.json({ bullets: await summarise(req.body, { key: GEMINI_KEY }) });
   } catch (err) {
@@ -118,10 +121,11 @@ io.on('connection', (socket) => {
   });
 
   // Sarvam path: this Participant's mic, forwarded to their own Sarvam socket.
-  // shortcut: no rate limit, so a client sending faster than real time spends credit faster; add a per-socket budget before going public.
+  // The mic sends 10 chunks a second; 1.5x that leaves room for jitter, and anything faster is dropped unsent.
+  const allowAudio = createRateLimit(150, 10_000);
   socket.on('stt-audio', (chunk) => {
     const { callId, role, stt } = socket.data;
-    if (stt !== 'sarvam' || !isAudioChunk(chunk)) return;
+    if (stt !== 'sarvam' || !isAudioChunk(chunk) || !allowAudio()) return;
     socket.data.sarvam ??= createSarvamStream({
       key: SARVAM_KEY,
       onText: (text, final) => relaySpeech(socket, callId, role, text, final),
