@@ -1,9 +1,13 @@
 const OTHER = { customer: 'agent', agent: 'customer' };
+const TRANSCRIPT_MAX = 200;
+const MESSAGE_MAX = 1000;
 
 // The one Call: its two Seats and when it started. Knows nothing about Socket.io.
 export function createCall() {
   const seats = { customer: null, agent: null }; // role -> { sessionId, online } of the Participant holding it
   let callStartedAt = null;
+  const transcript = []; // the last TRANSCRIPT_MAX Messages and Utterances, oldest first
+  let nextId = 1;
 
   function join(role, sessionId) {
     if (typeof role !== 'string' || !Object.hasOwn(seats, role) || typeof sessionId !== 'string' || !sessionId || sessionId.length > 100) {
@@ -16,7 +20,7 @@ export function createCall() {
     seats[role] = { sessionId, online: true };
     const other = seats[OTHER[role]];
     if (other && callStartedAt === null) callStartedAt = Date.now();
-    return { ok: true, peerPresent: !!other?.online, callStartedAt, transcript: [] };
+    return { ok: true, peerPresent: !!other?.online, callStartedAt, transcript: transcript.slice() };
   }
 
   // The Seat stays reserved for the same sessionId. Returns true if this Participant held it.
@@ -26,5 +30,16 @@ export function createCall() {
     return true;
   }
 
-  return { join, disconnect };
+  // A typed Message from the Participant in `role`; null when the text isn't worth keeping.
+  function addMessage(role, text) {
+    if (typeof text !== 'string') return null;
+    text = text.trim();
+    if (!text || text.length > MESSAGE_MAX) return null;
+    const entry = { id: nextId++, kind: 'message', from: role, text, at: Date.now() };
+    transcript.push(entry);
+    if (transcript.length > TRANSCRIPT_MAX) transcript.shift();
+    return entry;
+  }
+
+  return { join, disconnect, addMessage };
 }

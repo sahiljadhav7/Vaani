@@ -72,6 +72,12 @@ io.on('connection', (socket) => {
     socket.to(socket.data.callId).emit('peer-muted', { muted: data.muted });
   });
 
+  socket.on('chat-message', (data) => {
+    if (!socket.data.role) return;
+    const entry = calls.addMessage(socket.data.callId, socket.data.role, data?.text);
+    if (entry) io.to(socket.data.callId).emit('transcript-entry', entry);
+  });
+
   socket.on('end-call', () => {
     const { callId, role } = socket.data;
     if (!role) return;

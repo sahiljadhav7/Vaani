@@ -128,3 +128,16 @@ test('an ended Call is gone for both and its link stops working', () => {
   calls.end('00000000-0000-0000-0000-000000000000');
   assert.equal(calls.join(undefined, 'agent', 'tab-1').ok, true); // a new pair can start
 });
+
+test('a Message lands only in its own Call, and an ended Call takes none', () => {
+  const calls = createCalls();
+  const a = calls.join(undefined, 'agent', 'tab-1').callId;
+  const b = calls.join(undefined, 'agent', 'tab-2').callId;
+  const entry = calls.addMessage(a, 'agent', 'hello');
+  assert.equal(entry.text, 'hello');
+  assert.deepEqual(calls.join(a, 'customer', 'tab-3').transcript, [entry]);
+  assert.deepEqual(calls.join(b, 'customer', 'tab-4').transcript, []);
+  calls.end(a);
+  assert.equal(calls.addMessage(a, 'agent', 'too late'), null);
+  assert.equal(calls.addMessage('nope', 'agent', 'hi'), null);
+});
