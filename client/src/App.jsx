@@ -261,6 +261,7 @@ export default function App() {
         'call-ended': deadLink,
         ...(callId && { invalid: deadLink }),
         unreachable: "Can't reach the server. Try again.",
+        busy: 'Too many Calls are running right now. Try again in a few minutes.',
       }[res.error] ?? "Couldn't join the Call. Try again.")
       return
     }

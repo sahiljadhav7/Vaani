@@ -20,6 +20,7 @@ export default function Ended({ reason, transcript, names, onStartNew }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(transcript),
       })
+      if (res.status === 429) return setSummary({ state: 'error', message: 'Too many Summaries were made in the last hour. Try again later.' })
       if (!res.ok) throw new Error(`summary ${res.status}`)
       setSummary({ state: 'done', bullets: (await res.json()).bullets })
     } catch {
@@ -44,7 +45,7 @@ export default function Ended({ reason, transcript, names, onStartNew }) {
           <Paper variant="outlined" sx={panel} aria-live="polite">
             <Label>Summary · only you see this</Label>
             {summary.state === 'loading' && <CircularProgress size={24} aria-label="Summarising" sx={{ mt: 2 }} />}
-            {summary.state === 'error' && <Alert severity="error" sx={{ mt: 1 }}>Couldn't make a Summary. Try again.</Alert>}
+            {summary.state === 'error' && <Alert severity="error" sx={{ mt: 1 }}>{summary.message ?? "Couldn't make a Summary. Try again."}</Alert>}
             {summary.state === 'done' && (
               <List dense sx={{ listStyleType: 'disc', pl: 2.5 }}>
                 {summary.bullets.map((bullet, i) => (
