@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import { createCalls } from './calls.js';
 import { isSignal } from './signal.js';
+import { isMute } from './mute.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -38,6 +39,25 @@ io.on('connection', (socket) => {
   socket.on('signal', (data) => {
     if (!socket.data.role || !isSignal(data)) return; // only Seat holders, only valid signals
     socket.to(socket.data.callId).emit('signal', data);
+  });
+
+  // Muting is local (track.enabled); this only tells the other side to show the muted icon.
+  socket.on('mute', (data) => {
+    if (!socket.data.role || !isMute(data)) return;
+    socket.to(socket.data.callId).emit('peer-muted', { muted: data.muted });
+  });
+
+  socket.on('end-call', () => {
+    const { callId, role } = socket.data;
+    if (!role) return;
+    calls.end(callId);
+    io.to(callId).emit('call-ended', { reason: 'ended', by: role });
+    // After the emit, or it reaches nobody. Copied because leave() changes the room's Set.
+    for (const id of [...(io.sockets.adapter.rooms.get(callId) ?? [])]) {
+      const s = io.sockets.sockets.get(id);
+      s.leave(callId);
+      s.data = {};
+    }
   });
 
   socket.on('disconnect', (reason) => {

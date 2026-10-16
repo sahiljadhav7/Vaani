@@ -64,3 +64,15 @@ test('a failed start leaves no Call behind', () => {
   assert.deepEqual(calls.join(undefined, 'agent', ''), { ok: false, error: 'invalid' });
   assert.equal(calls.size, 0);
 });
+
+test('an ended Call is gone for both and its link stops working', () => {
+  const calls = createCalls();
+  const { callId } = calls.join(undefined, 'agent', 'tab-1');
+  calls.join(callId, 'customer', 'tab-2');
+  calls.end(callId);
+  assert.equal(calls.size, 0);
+  assert.deepEqual(calls.join(callId, 'customer', 'tab-3'), { ok: false, error: 'call-not-found' });
+  calls.end(callId);
+  calls.end('00000000-0000-0000-0000-000000000000');
+  assert.equal(calls.join(undefined, 'agent', 'tab-1').ok, true); // a new pair can start
+});

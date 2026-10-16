@@ -29,5 +29,9 @@ export function createCalls() {
     if (calls.get(callId)?.disconnect(role, sessionId)) calls.delete(callId);
   }
 
-  return { join, leave, get size() { return calls.size; } };
+  function end(callId) {
+    calls.delete(callId);
+  }
+
+  return { join, leave, end, get size() { return calls.size; } };
 }
