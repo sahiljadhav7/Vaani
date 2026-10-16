@@ -22,9 +22,7 @@ export function createCall() {
   function disconnect(role, sessionId) {
     if (seats[role] !== sessionId) return false;
     seats[role] = null;
-    const empty = !seats.customer && !seats.agent;
-    if (empty) callStartedAt = null;
-    return empty;
+    return !seats.customer && !seats.agent;
   }
 
   return { join, disconnect };

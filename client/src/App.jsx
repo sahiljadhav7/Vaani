@@ -7,6 +7,7 @@ const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
 const OTHER = { customer: 'agent', agent: 'customer' }
 // Opened from a Call Link: you join that Call as the Customer. Otherwise you start one as the Agent.
 const linkCallId = new URLSearchParams(location.search).get('call')
+const role = linkCallId ? 'customer' : 'agent'
 
 function micError(err) {
   if (err.name === 'NotAllowedError') return 'Microphone access was denied. Allow it in your browser to join.'
@@ -17,7 +18,6 @@ function micError(err) {
 export default function App() {
   const [server, setServer] = useState(socket.connected ? 'up' : 'pending') // up | pending | down
   const [status, setStatus] = useState('idle') // idle | joining | waiting | connecting | connected
-  const [role, setRole] = useState(null)
   const [callId, setCallId] = useState(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState(null)
@@ -84,7 +84,6 @@ export default function App() {
   }
 
   async function join() {
-    const wanted = linkCallId ? 'customer' : 'agent'
     setError(null)
     setStatus('joining')
     let stream
@@ -100,7 +99,7 @@ export default function App() {
     const sessionId = crypto.randomUUID()
     let res
     try {
-      res = await socket.timeout(5000).emitWithAck('join', { callId: linkCallId ?? undefined, role: wanted, sessionId })
+      res = await socket.timeout(5000).emitWithAck('join', { callId: linkCallId ?? undefined, role, sessionId })
     } catch {
       // The server may have seated us after all; reconnecting frees that Seat.
       socket.disconnect().connect()
@@ -110,7 +109,7 @@ export default function App() {
       stream.getTracks().forEach((track) => track.stop())
       setStatus('idle')
       setError({
-        'seat-taken': `${ROLE_NAME[wanted]} already connected`,
+        'seat-taken': `${ROLE_NAME[role]} already connected`,
         'call-not-found': "This Call link isn't valid, or the Call has ended.",
         unreachable: "Can't reach the server. Try again.",
       }[res.error] ?? "Couldn't join the Call. Try again.")
@@ -120,8 +119,7 @@ export default function App() {
     micRef.current = stream
     // Before the status changes: the newcomer's connection must exist when the offer arrives.
     createPeer()
-    sessionStorage.setItem('call', JSON.stringify({ callId: res.callId, role: wanted, sessionId }))
-    setRole(wanted)
+    sessionStorage.setItem('call', JSON.stringify({ callId: res.callId, role, sessionId }))
     setCallId(res.callId)
     setStatus(res.peerPresent ? 'connecting' : 'waiting')
   }

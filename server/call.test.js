@@ -53,15 +53,3 @@ test('a disconnect from someone not holding the Seat changes nothing', () => {
   call.disconnect('agent', 'tab-2');
   assert.deepEqual(call.join('agent', 'tab-2'), { ok: false, error: 'seat-taken' });
 });
-
-test('once both Seats empty, the next pair starts a fresh Call', (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: 1000 });
-  const call = createCall();
-  call.join('agent', 'tab-1');
-  call.join('customer', 'tab-2');
-  call.disconnect('agent', 'tab-1');
-  call.disconnect('customer', 'tab-2');
-  assert.equal(call.join('agent', 'tab-3').callStartedAt, null);
-  t.mock.timers.setTime(5000);
-  assert.equal(call.join('customer', 'tab-4').callStartedAt, 5000);
-});
