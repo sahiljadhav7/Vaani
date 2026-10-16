@@ -1,5 +1,5 @@
 const OTHER = { customer: 'agent', agent: 'customer' };
-const TRANSCRIPT_MAX = 200;
+export const TRANSCRIPT_MAX = 200;
 export const TEXT_MAX = 1000; // longest Message, Utterance or Subtitle
 
 // The one Call: its two Seats and when it started. Knows nothing about Socket.io.

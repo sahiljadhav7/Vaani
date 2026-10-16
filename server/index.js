@@ -6,18 +6,21 @@ import { isSignal } from './signal.js';
 import { isMute } from './mute.js';
 import { isSubtitle } from './subtitle.js';
 import { createSarvamStream, isAudioChunk } from './sarvam.js';
+import { isTranscript, summarise } from './summary.js';
 
 const app = express();
 const httpServer = createServer(app);
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
 const io = new Server(httpServer, {
   // A dead network is noticed in about 10 s instead of about 45 s, well inside the Grace Period.
   pingInterval: 5000,
   pingTimeout: 5000,
   // An array (not a string) so other origins get no Access-Control-Allow-Origin header at all.
-  cors: { origin: [process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'] },
+  cors: { origin: [CLIENT_ORIGIN] },
 });
 
 const SARVAM_KEY = process.env.SARVAM_API_KEY;
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const calls = createCalls((callId, role) => closeCall(callId, 'grace-expired', role));
 
 function roomSockets(callId) {
@@ -42,6 +45,25 @@ function closeCall(callId, reason, by) {
   io.to(callId).emit('call-ended', { reason, by });
   for (const s of roomSockets(callId)) release(s, callId);
 }
+
+// The Summarise button's JSON POST comes from the client's origin, so it needs CORS and a preflight answer.
+app.use('/summary', (req, res, next) => {
+  res.set({ 'Access-Control-Allow-Origin': CLIENT_ORIGIN, 'Access-Control-Allow-Headers': 'Content-Type' });
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+// A Hindi Transcript at the size cap (200 entries of 1000 characters, 3 bytes each) is about 600 KB.
+// shortcut: no rate limit, so anyone who finds the URL can spend Gemini credit; add one before going public.
+app.post('/summary', express.json({ limit: '1mb' }), async (req, res) => {
+  if (!isTranscript(req.body)) return res.status(400).json({ error: 'invalid' });
+  try {
+    res.json({ bullets: await summarise(req.body, { key: GEMINI_KEY }) });
+  } catch (err) {
+    console.warn('[summary]', err.message);
+    res.status(502).json({ error: 'failed' });
+  }
+});
 
 io.on('connection', (socket) => {
   console.log('connected', socket.id);
