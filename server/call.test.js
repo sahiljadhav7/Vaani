@@ -40,16 +40,36 @@ test('the second Participant starts the Call', (t) => {
   });
 });
 
-test('a disconnect frees the Seat', () => {
+test('a disconnected Seat stays reserved for its Participant', () => {
   const call = createCall();
   call.join('agent', 'tab-1');
-  call.disconnect('agent', 'tab-1');
-  assert.equal(call.join('agent', 'tab-2').ok, true);
+  assert.equal(call.disconnect('agent', 'tab-1'), true);
+  assert.deepEqual(call.join('agent', 'tab-2'), { ok: false, error: 'seat-taken' });
+  assert.equal(call.join('agent', 'tab-1').ok, true);
 });
 
 test('a disconnect from someone not holding the Seat changes nothing', () => {
   const call = createCall();
   call.join('agent', 'tab-1');
-  call.disconnect('agent', 'tab-2');
+  assert.equal(call.disconnect('agent', 'tab-2'), false);
+  assert.equal(call.disconnect('admin', 'tab-1'), false);
   assert.deepEqual(call.join('agent', 'tab-2'), { ok: false, error: 'seat-taken' });
+});
+
+test('a rejoin keeps callStartedAt, and peerPresent means the other side is online', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+  const call = createCall();
+  call.join('agent', 'tab-1');
+  call.join('customer', 'tab-2');
+  t.mock.timers.tick(5000);
+  call.disconnect('customer', 'tab-2');
+  call.disconnect('agent', 'tab-1');
+  assert.deepEqual(call.join('agent', 'tab-1'), { ok: true, peerPresent: false, callStartedAt: 1000, transcript: [] });
+  assert.deepEqual(call.join('customer', 'tab-2'), { ok: true, peerPresent: true, callStartedAt: 1000, transcript: [] });
+});
+
+test('the same Participant joining while still online takes the Seat over', () => {
+  const call = createCall();
+  call.join('agent', 'tab-1');
+  assert.equal(call.join('agent', 'tab-1').ok, true);
 });

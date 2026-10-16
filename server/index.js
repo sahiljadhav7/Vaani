@@ -7,12 +7,30 @@ import { isMute } from './mute.js';
 
 const app = express();
 const httpServer = createServer(app);
-// An array (not a string) so other origins get no Access-Control-Allow-Origin header at all.
 const io = new Server(httpServer, {
+  // A dead network is noticed in about 10 s instead of about 45 s, well inside the Grace Period.
+  pingInterval: 5000,
+  pingTimeout: 5000,
+  // An array (not a string) so other origins get no Access-Control-Allow-Origin header at all.
   cors: { origin: [process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'] },
 });
 
-const calls = createCalls();
+const calls = createCalls((callId, role) => closeCall(callId, 'grace-expired', role));
+
+function roomSockets(callId) {
+  return [...(io.sockets.adapter.rooms.get(callId) ?? [])].map((id) => io.sockets.sockets.get(id));
+}
+
+function release(s, callId) {
+  s.data = {};
+  s.leave(callId);
+}
+
+// The emit comes before release, or it reaches nobody.
+function closeCall(callId, reason, by) {
+  io.to(callId).emit('call-ended', { reason, by });
+  for (const s of roomSockets(callId)) release(s, callId);
+}
 
 io.on('connection', (socket) => {
   console.log('connected', socket.id);
@@ -24,6 +42,13 @@ io.on('connection', (socket) => {
     console.log('[join]', socket.id, data?.role, result.ok ? result.callId : result.error);
     if (!result.ok) return ack(result);
 
+    // The same Participant on a new connection (the client noticed a dropped network before the server did):
+    // forget the old socket first, so its disconnect doesn't start a Grace Period on the Seat just taken back.
+    for (const s of roomSockets(result.callId)) {
+      if (s.data.sessionId !== data.sessionId) continue;
+      release(s, result.callId);
+      s.disconnect(true);
+    }
     // From here on, the Call comes from the socket, never from a payload.
     socket.data.callId = result.callId;
     socket.data.role = data.role;
@@ -51,18 +76,13 @@ io.on('connection', (socket) => {
     const { callId, role } = socket.data;
     if (!role) return;
     calls.end(callId);
-    io.to(callId).emit('call-ended', { reason: 'ended', by: role });
-    // After the emit, or it reaches nobody. Copied because leave() changes the room's Set.
-    for (const id of [...(io.sockets.adapter.rooms.get(callId) ?? [])]) {
-      const s = io.sockets.sockets.get(id);
-      s.leave(callId);
-      s.data = {};
-    }
+    closeCall(callId, 'ended', role);
   });
 
   socket.on('disconnect', (reason) => {
     console.log('disconnected', socket.id, reason);
-    if (socket.data.role) calls.leave(socket.data.callId, socket.data.role, socket.data.sessionId);
+    const { callId, role, sessionId } = socket.data;
+    if (role && calls.leave(callId, role, sessionId)) socket.to(callId).emit('peer-reconnecting');
   });
 });
 

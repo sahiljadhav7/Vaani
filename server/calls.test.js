@@ -28,15 +28,24 @@ test('an unknown callId is call-not-found, a non-string one is invalid', () => {
   }
 });
 
-test('a Customer needs a link, and a link cannot take the Agent Seat', () => {
+test('a Customer needs a link, and nobody else can take a reserved Seat', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const calls = createCalls();
   assert.deepEqual(calls.join(undefined, 'customer', 'tab-1'), { ok: false, error: 'invalid' });
   const { callId } = calls.join(undefined, 'agent', 'tab-1');
+  calls.join(callId, 'customer', 'tab-2');
   calls.leave(callId, 'agent', 'tab-1');
-  const again = calls.join(undefined, 'agent', 'tab-2').callId;
-  calls.join(again, 'customer', 'tab-3');
-  calls.leave(again, 'agent', 'tab-2'); // the Agent Seat is empty, the Customer still holds theirs
-  assert.deepEqual(calls.join(again, 'agent', 'tab-4'), { ok: false, error: 'invalid' });
+  assert.deepEqual(calls.join(callId, 'agent', 'tab-3'), { ok: false, error: 'seat-taken' });
+  calls.leave(callId, 'customer', 'tab-2');
+  assert.deepEqual(calls.join(callId, 'customer', 'tab-3'), { ok: false, error: 'seat-taken' });
+});
+
+test('the Agent rejoins their own Call by link and sessionId', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const calls = createCalls();
+  const { callId } = calls.join(undefined, 'agent', 'tab-1');
+  calls.leave(callId, 'agent', 'tab-1');
+  assert.equal(calls.join(callId, 'agent', 'tab-1').ok, true);
 });
 
 test('two Calls are kept apart', () => {
@@ -49,14 +58,57 @@ test('two Calls are kept apart', () => {
   assert.deepEqual(calls.join(a, 'customer', 'tab-5'), { ok: false, error: 'seat-taken' });
 });
 
-test('once both Seats are empty the Call is gone and its link stops working', () => {
-  const calls = createCalls();
+test('a rejoin within the Grace Period cancels its timer', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const expired = [];
+  const calls = createCalls((...args) => expired.push(args));
+  const { callId } = calls.join(undefined, 'agent', 'tab-1');
+  calls.join(callId, 'customer', 'tab-2');
+  calls.leave(callId, 'customer', 'tab-2');
+  t.mock.timers.tick(14999);
+  assert.equal(calls.join(callId, 'customer', 'tab-2').ok, true);
+  t.mock.timers.tick(60000);
+  assert.deepEqual(expired, []);
+  assert.equal(calls.size, 1);
+});
+
+test('when the Grace Period runs out the Call ends, and a late return sees call-ended', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const expired = [];
+  const calls = createCalls((...args) => expired.push(args));
+  const { callId } = calls.join(undefined, 'agent', 'tab-1');
+  calls.join(callId, 'customer', 'tab-2');
+  calls.leave(callId, 'customer', 'tab-2');
+  t.mock.timers.tick(15000);
+  assert.deepEqual(expired, [[callId, 'customer']]);
+  assert.equal(calls.size, 0);
+  assert.deepEqual(calls.join(callId, 'customer', 'tab-2'), { ok: false, error: 'call-ended' });
+  assert.deepEqual(calls.join(callId, 'agent', 'tab-1'), { ok: false, error: 'call-ended' });
+});
+
+test('when both drop, the first expiry ends the Call and clears the other timer', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const expired = [];
+  const calls = createCalls((...args) => expired.push(args));
   const { callId } = calls.join(undefined, 'agent', 'tab-1');
   calls.join(callId, 'customer', 'tab-2');
   calls.leave(callId, 'agent', 'tab-1');
-  assert.equal(calls.join(callId, 'customer', 'tab-3').error, 'seat-taken'); // still alive: the Customer is in it
+  t.mock.timers.tick(5000);
   calls.leave(callId, 'customer', 'tab-2');
-  assert.deepEqual(calls.join(callId, 'customer', 'tab-3'), { ok: false, error: 'call-not-found' });
+  t.mock.timers.tick(60000);
+  assert.deepEqual(expired, [[callId, 'agent']]);
+});
+
+test('ending a Call clears its timers, so a stale one cannot fire later', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const expired = [];
+  const calls = createCalls((...args) => expired.push(args));
+  const { callId } = calls.join(undefined, 'agent', 'tab-1');
+  calls.join(callId, 'customer', 'tab-2');
+  calls.leave(callId, 'customer', 'tab-2');
+  calls.end(callId);
+  t.mock.timers.tick(60000);
+  assert.deepEqual(expired, []);
 });
 
 test('a failed start leaves no Call behind', () => {
@@ -71,7 +123,7 @@ test('an ended Call is gone for both and its link stops working', () => {
   calls.join(callId, 'customer', 'tab-2');
   calls.end(callId);
   assert.equal(calls.size, 0);
-  assert.deepEqual(calls.join(callId, 'customer', 'tab-3'), { ok: false, error: 'call-not-found' });
+  assert.deepEqual(calls.join(callId, 'customer', 'tab-3'), { ok: false, error: 'call-ended' });
   calls.end(callId);
   calls.end('00000000-0000-0000-0000-000000000000');
   assert.equal(calls.join(undefined, 'agent', 'tab-1').ok, true); // a new pair can start
