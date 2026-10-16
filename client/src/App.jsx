@@ -7,12 +7,13 @@ import Send from '@mui/icons-material/Send'
 import { socket } from './socket.js'
 import Landing from './Landing.jsx'
 import { Duration, Label, Tile, Transcript } from './Call.jsx'
+import Ended from './Ended.jsx'
 import { subtitlesSupported, useSarvamAudio, useSubtitles } from './subtitles.js'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
 const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected', 'audio-failed': 'Audio Failed', reconnecting: 'Reconnecting…' }
 
-// The Call this tab is in, as { callId, role, sessionId, muted }. sessionStorage is per tab and survives a reload.
+// The Call this tab is in, as { callId, role, sessionId, muted, transcript }. sessionStorage is per tab and survives a reload.
 function loadCall() {
   return JSON.parse(sessionStorage.getItem('call') ?? 'null')
 }
@@ -20,9 +21,20 @@ function saveCall(value) {
   if (value) sessionStorage.setItem('call', JSON.stringify(value))
   else sessionStorage.removeItem('call')
 }
+// The Call Ended screen as { callId, role, ended, transcript }, kept until Start new call.
+function loadEnded() {
+  return JSON.parse(sessionStorage.getItem('call-ended') ?? 'null')
+}
+function saveEnded(value) {
+  if (value) sessionStorage.setItem('call-ended', JSON.stringify(value))
+  else sessionStorage.removeItem('call-ended')
+}
 
 const linkCallId = new URLSearchParams(location.search).get('call')
 const savedOnLoad = loadCall()
+const savedEnded = loadEnded()
+// A link to another Call opens that Call, not this tab's old Call Ended screen.
+const endedOnLoad = savedEnded && (!linkCallId || linkCallId === savedEnded.callId) ? savedEnded : null
 
 function micError(err) {
   if (err.name === 'NotAllowedError') return 'Microphone access was denied. Allow it in your browser to join.'
@@ -39,18 +51,19 @@ function hangUp(pc) {
 export default function App() {
   const [server, setServer] = useState(socket.connected ? 'up' : 'pending') // up | pending | down
   // idle | joining | waiting | connecting | connected | audio-failed | reconnecting | ended
-  const [status, setStatus] = useState(savedOnLoad ? 'joining' : 'idle')
-  const [role, setRole] = useState(null) // set by a successful join
-  const [callId, setCallId] = useState(null)
+  const [status, setStatus] = useState(savedOnLoad ? 'joining' : endedOnLoad ? 'ended' : 'idle')
+  const [role, setRole] = useState(savedOnLoad?.role ?? endedOnLoad?.role ?? null) // set by a successful join
+  const [callId, setCallId] = useState(endedOnLoad?.callId ?? null)
   const [callStartedAt, setCallStartedAt] = useState(null)
   const [mic, setMic] = useState(null) // your mic stream
   const [peerStream, setPeerStream] = useState(null) // the other Participant's audio
   const [muted, setMuted] = useState(false)
   const [peerMuted, setPeerMuted] = useState(false)
-  const [ended, setEnded] = useState(null) // { reason, by } from call-ended; empty when you came back too late
+  const [ended, setEnded] = useState(endedOnLoad?.ended ?? null) // { reason, by } from call-ended; empty when you came back too late
   const [audioBlocked, setAudioBlocked] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [transcript, setTranscript] = useState([])
+  // After a reload the saved lines are back at once, so a Call that ended while away still has its Transcript.
+  const [transcript, setTranscript] = useState(savedOnLoad?.transcript ?? endedOnLoad?.transcript ?? [])
   const [draft, setDraft] = useState('')
   const [stt, setStt] = useState(null) // 'browser' | 'sarvam', from the join ack
   const [peerSubtitle, setPeerSubtitle] = useState('')
@@ -169,6 +182,12 @@ export default function App() {
     }
   }, [])
 
+  // Written from the latest state, so a last line that arrives together with call-ended is still saved.
+  useEffect(() => {
+    if (status === 'ended') saveEnded({ callId, role, ended, transcript })
+    else if (loadCall()) saveCall({ ...loadCall(), transcript })
+  }, [status, callId, role, ended, transcript])
+
   // The <audio> element only exists on the call screen, which may render after the track arrives.
   useEffect(() => {
     const el = audioRef.current
@@ -230,11 +249,7 @@ export default function App() {
       setMic(null)
       saveCall(null)
       // Only a rejoin has a Call to come back to; a fresh link to an ended Call is just a dead link.
-      if (res.error === 'call-ended' && target.sessionId) {
-        setEnded({})
-        setStatus('ended')
-        return
-      }
+      if (res.error === 'call-ended' && target.sessionId) return finish({}, callId)
       setStatus('idle')
       const deadLink = "This Call link isn't valid, or the Call has ended."
       setError({
@@ -257,6 +272,7 @@ export default function App() {
     createPeer(stream)
     if (role === 'customer' && !linkCallId) history.replaceState(null, '', `?call=${res.callId}`)
     setRole(role)
+    saveEnded(null)
     saveCall({ callId: res.callId, role, sessionId, muted: wasMuted })
     setCallId(res.callId)
     setCallStartedAt(res.callStartedAt)
@@ -287,9 +303,10 @@ export default function App() {
     setDraft('')
   }
 
-  function finish({ reason, by }) {
+  function finish({ reason, by }, id = callId) {
     hangUp(pcRef.current)
     saveCall(null)
+    setCallId(id)
     setEnded({ reason, by })
     setStatus('ended')
   }
@@ -330,18 +347,16 @@ export default function App() {
 
   if (status === 'ended') {
     const who = ended.by === role ? 'You' : ROLE_NAME[ended.by]
-    return (
-      <Container maxWidth="sm" sx={{ py: 10 }}>
-        <Typography variant="h4" component="h1" role="status">Call Ended</Typography>
-        <Typography sx={{ color: 'text.secondary', mt: 1 }}>
-          {{
-            ended: `${who} ended the call`,
-            'grace-expired': `${who} lost connection`,
-            moved: 'The Call continued in another tab.',
-          }[ended.reason] ?? 'The Call ended while you were away.'}
-        </Typography>
-      </Container>
-    )
+    const reason = {
+      ended: `${who} ended the call`,
+      'grace-expired': `${who} lost connection`,
+      moved: 'The Call continued in another tab.',
+    }[ended.reason] ?? 'The Call ended while you were away.'
+    const startNew = () => {
+      saveEnded(null)
+      location.assign(location.pathname)
+    }
+    return <Ended reason={reason} transcript={transcript} names={ROLE_NAME} onStartNew={startNew} />
   }
 
   const tile = (tileRole) => {
