@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Container, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Chip, Container, Paper, Stack, TextField, Typography } from '@mui/material'
+import Mic from '@mui/icons-material/Mic'
+import MicOff from '@mui/icons-material/MicOff'
+import CallEnd from '@mui/icons-material/CallEnd'
 import { socket } from './socket.js'
 import Landing from './Landing.jsx'
+import { Duration, Label, Tile } from './Call.jsx'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
-const OTHER = { customer: 'agent', agent: 'customer' }
+const STATUS_TEXT = { waiting: 'Waiting', connecting: 'Connecting…', connected: 'Connected' }
 // Opened from a Call Link: you join that Call as the Customer. Otherwise you start one as the Agent.
 const linkCallId = new URLSearchParams(location.search).get('call')
 const role = linkCallId ? 'customer' : 'agent'
@@ -15,13 +19,24 @@ function micError(err) {
   return "The microphone couldn't be started. Try again."
 }
 
+// Stops the mic (the browser's mic indicator turns off) and closes the connection. Safe to call twice.
+function hangUp(pc) {
+  pc?.getSenders().forEach((sender) => sender.track?.stop())
+  pc?.close()
+}
+
 export default function App() {
   const [server, setServer] = useState(socket.connected ? 'up' : 'pending') // up | pending | down
-  const [status, setStatus] = useState('idle') // idle | joining | waiting | connecting | connected
+  const [status, setStatus] = useState('idle') // idle | joining | waiting | connecting | connected | ended
   const [callId, setCallId] = useState(null)
+  const [callStartedAt, setCallStartedAt] = useState(null)
+  const [mic, setMic] = useState(null) // your mic stream
+  const [peerStream, setPeerStream] = useState(null) // the other Participant's audio
+  const [muted, setMuted] = useState(false)
+  const [peerMuted, setPeerMuted] = useState(false)
+  const [endedBy, setEndedBy] = useState(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState(null)
-  const micRef = useRef(null) // the mic stream, kept for the voice call
   const pcRef = useRef(null) // the RTCPeerConnection for this Call
   const audioRef = useRef(null) // the <audio> element that plays the other Participant
 
@@ -30,8 +45,12 @@ export default function App() {
     const onDisconnect = () => setServer('pending')
     const onConnectError = () => setServer('down')
     // The side already waiting makes the offer; the newcomer only answers.
-    const onPeerJoined = async () => {
+    const onPeerJoined = async ({ callStartedAt }) => {
+      setCallStartedAt(callStartedAt)
       setStatus('connecting')
+      setPeerMuted(false)
+      // A mute made while Waiting reached nobody, so tell the newcomer.
+      socket.emit('mute', { muted: pcRef.current.getSenders().some((s) => s.track && !s.track.enabled) })
       const offer = await pcRef.current.createOffer()
       await pcRef.current.setLocalDescription(offer)
       socket.emit('signal', { description: pcRef.current.localDescription })
@@ -53,11 +72,19 @@ export default function App() {
     const onSignal = (data) => {
       signals = signals.then(() => handleSignal(data)).catch((err) => console.error('[signal]', err))
     }
+    const onPeerMuted = ({ muted }) => setPeerMuted(muted)
+    const onCallEnded = ({ by }) => {
+      hangUp(pcRef.current)
+      setEndedBy(by)
+      setStatus('ended')
+    }
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('connect_error', onConnectError)
     socket.on('peer-joined', onPeerJoined)
     socket.on('signal', onSignal)
+    socket.on('peer-muted', onPeerMuted)
+    socket.on('call-ended', onCallEnded)
     if (socket.connected) onConnect() // it may have connected before we subscribed
     return () => {
       socket.off('connect', onConnect)
@@ -65,17 +92,20 @@ export default function App() {
       socket.off('connect_error', onConnectError)
       socket.off('peer-joined', onPeerJoined)
       socket.off('signal', onSignal)
+      socket.off('peer-muted', onPeerMuted)
+      socket.off('call-ended', onCallEnded)
     }
   }, [])
 
-  function createPeer() {
+  function createPeer(stream) {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
-    micRef.current.getTracks().forEach((track) => pc.addTrack(track, micRef.current))
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream))
     pc.onicecandidate = (event) => {
       if (event.candidate) socket.emit('signal', { candidate: event.candidate })
     }
     pc.ontrack = (event) => {
       audioRef.current.srcObject = event.streams[0]
+      setPeerStream(event.streams[0])
     }
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') setStatus('connected')
@@ -116,12 +146,28 @@ export default function App() {
       return
     }
 
-    micRef.current = stream
+    setMic(stream)
     // Before the status changes: the newcomer's connection must exist when the offer arrives.
-    createPeer()
+    createPeer(stream)
     sessionStorage.setItem('call', JSON.stringify({ callId: res.callId, role, sessionId }))
     setCallId(res.callId)
+    setCallStartedAt(res.callStartedAt)
     setStatus(res.peerPresent ? 'connecting' : 'waiting')
+  }
+
+  // Mute sends silence and keeps the connection; stop() would need a new getUserMedia to unmute.
+  function toggleMute() {
+    const next = !muted
+    mic.getAudioTracks().forEach((track) => { track.enabled = !next })
+    setMuted(next)
+    socket.emit('mute', { muted: next })
+  }
+
+  function endCall() {
+    socket.emit('end-call')
+    hangUp(pcRef.current)
+    setEndedBy(role)
+    setStatus('ended')
   }
 
   const callLink = `${location.origin}${location.pathname}?call=${callId}`
@@ -134,15 +180,62 @@ export default function App() {
     return <Landing invited={!!linkCallId} onJoin={join} joining={status === 'joining'} server={server} error={error} />
   }
 
+  if (status === 'ended') {
+    return (
+      <Container maxWidth="sm" sx={{ py: 10 }}>
+        <Typography variant="h4" component="h1" role="status">Call Ended</Typography>
+        <Typography color="text.secondary" sx={{ mt: 1 }}>
+          {endedBy === role ? 'You' : ROLE_NAME[endedBy]} ended the call
+        </Typography>
+      </Container>
+    )
+  }
+
+  const tile = (tileRole) => {
+    const you = tileRole === role
+    return (
+      <Tile
+        role={tileRole}
+        name={ROLE_NAME[tileRole]}
+        you={you}
+        present={you || status !== 'waiting'}
+        muted={you ? muted : peerMuted}
+        stream={you ? mic : peerStream}
+      />
+    )
+  }
+
   return (
-    <Container sx={{ py: 6 }}>
-      <Typography color="text.secondary">You are the {ROLE_NAME[role]}</Typography>
-      <Typography variant="h5" role="status" aria-live="polite" sx={{ mt: 1 }}>
-        {status === 'waiting'
-          ? `Waiting for ${ROLE_NAME[OTHER[role]]}…`
-          : status === 'connected' ? 'Connected' : 'Connecting…'}
-      </Typography>
+    <Container sx={{ py: 4 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
+        <Box />
+        <Duration startedAt={callStartedAt} />
+        <Chip
+          label={STATUS_TEXT[status]}
+          variant="outlined"
+          role="status"
+          aria-live="polite"
+          color={status === 'connected' ? 'success' : 'default'}
+          sx={{ justifySelf: 'end' }}
+        />
+      </Box>
       {role === 'agent' && status === 'waiting' && <CallLink link={callLink} copied={copied} onCopy={copyLink} />}
+      {/* The Agent is always on the left, so neither side's layout flips. */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 3 }}>
+        {tile('agent')}
+        {tile('customer')}
+      </Box>
+      <Paper variant="outlined" sx={{ mt: 2, p: 2, minHeight: 160, borderRadius: '16px' }}>
+        <Label>Transcript</Label>
+      </Paper>
+      <Stack direction="row" spacing={2} sx={{ mt: 2, justifyContent: 'flex-end' }}>
+        <Button variant="outlined" size="large" onClick={toggleMute} startIcon={muted ? <MicOff /> : <Mic />}>
+          {muted ? 'Unmute' : 'Mute'}
+        </Button>
+        <Button variant="contained" size="large" color="error" onClick={endCall} startIcon={<CallEnd />}>
+          End call
+        </Button>
+      </Stack>
       <audio ref={audioRef} autoPlay />
     </Container>
   )

@@ -9,6 +9,8 @@ export const theme = createTheme({
     text: { primary: '#ecebe7', secondary: '#8a8f99', disabled: '#5b606a' },
     error: { main: '#e5484d' },
     success: { main: '#46c37b' },
+    agent: { main: '#3fb8a9' },
+    customer: { main: '#e8a33d' },
   },
   shape: { borderRadius: 12 },
   typography: { h3: { fontWeight: 300 } },
