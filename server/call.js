@@ -18,10 +18,13 @@ export function createCall() {
 
   // shortcut: frees the Seat at once, and a new Participant can take it mid-Call (keeping callStartedAt);
   // ticket 05 replaces this with the Grace Period.
+  // Returns true once both Seats are empty.
   function disconnect(role, sessionId) {
-    if (seats[role] !== sessionId) return;
+    if (seats[role] !== sessionId) return false;
     seats[role] = null;
-    if (!seats.customer && !seats.agent) callStartedAt = null;
+    const empty = !seats.customer && !seats.agent;
+    if (empty) callStartedAt = null;
+    return empty;
   }
 
   return { join, disconnect };
