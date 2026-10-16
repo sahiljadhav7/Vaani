@@ -12,6 +12,9 @@ function useSpeaking(stream) {
     const analyser = ctx.createAnalyser()
     // Into the analyser only, never ctx.destination, which would play the audio a second time.
     ctx.createMediaStreamSource(stream).connect(analyser)
+    // A context made without a click (after a reload) starts suspended; the next click wakes it.
+    const resume = () => ctx.resume()
+    window.addEventListener('pointerdown', resume)
     const samples = new Float32Array(analyser.fftSize)
     let loudAt = 0
     const id = setInterval(() => {
@@ -23,13 +26,14 @@ function useSpeaking(stream) {
     }, 100)
     return () => {
       clearInterval(id)
+      window.removeEventListener('pointerdown', resume)
       ctx.close()
     }
   }, [stream])
   return !!stream && speaking
 }
 
-export function Tile({ role, name, you, present, muted, stream }) {
+export function Tile({ role, name, you, present, reconnecting, muted, stream }) {
   const speaking = useSpeaking(present ? stream : null)
   const tint = (theme, a) => alpha(theme.palette[role].main, a)
   return (
@@ -39,7 +43,7 @@ export function Tile({ role, name, you, present, muted, stream }) {
         borderRadius: '22px', minHeight: 260, p: 3, gap: 1.5,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         backgroundImage: (t) => `radial-gradient(ellipse at top, ${tint(t, 0.12)}, transparent 70%)`,
-        opacity: present ? 1 : 0.6,
+        opacity: present && !reconnecting ? 1 : 0.6,
       }}
     >
       <Avatar
@@ -56,6 +60,7 @@ export function Tile({ role, name, you, present, muted, stream }) {
         {you && <Chip label="You" size="small" />}
       </Stack>
       {!present && <Typography color="text.secondary">Waiting for {name}…</Typography>}
+      {reconnecting && <Typography color="text.secondary">Reconnecting…</Typography>}
       {present && muted && (
         <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'error.main' }}>
           <MicOff fontSize="small" />
