@@ -8,6 +8,7 @@ import { socket } from './socket.js'
 import Landing from './Landing.jsx'
 import { Duration, Label, Tile, Transcript } from './Call.jsx'
 import Ended from './Ended.jsx'
+import Wordmark from './Wordmark.jsx'
 import { subtitlesSupported, useSarvamAudio, useSubtitles } from './subtitles.js'
 
 const ROLE_NAME = { customer: 'Customer', agent: 'Agent' }
@@ -345,7 +346,7 @@ export default function App() {
 
   if (status === 'idle' || status === 'joining') {
     return (
-      <>
+      <Box sx={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         {statusLive}
         <Landing
           invited={!!linkCallId}
@@ -355,7 +356,8 @@ export default function App() {
           server={server}
           error={error}
         />
-      </>
+        <Wordmark />
+      </Box>
     )
   }
 

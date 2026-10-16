@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Alert, Avatar, Box, Button, Container, Link, Paper, Stack, TextField, Typography } from '@mui/material'
+import FlipText from './FlipText.jsx'
 
 // The id from a pasted Call Link (with or without https://), or the text itself when it is a bare id.
 function callIdFrom(text) {
@@ -67,7 +68,7 @@ export default function Landing({ invited, onStart, onJoin, joining, server, err
   const joinError = linkError ?? (action === 'join' ? error : null)
   return (
     <Container maxWidth="md" sx={{ py: 10 }}>
-      <Typography variant="h3" component="h1" sx={{ textAlign: 'center' }}>Start a Call, or join one.</Typography>
+      <Typography variant="h3" component="h1" sx={{ textAlign: 'center' }}><FlipText>Start a Call, or join one.</FlipText></Typography>
       <Typography sx={{ color: 'text.secondary', mt: 2, textAlign: 'center' }}>
         A voice Call between an Agent and a Customer. We'll ask for your microphone first.
       </Typography>
