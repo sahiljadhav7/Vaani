@@ -1,3 +1,19 @@
+# Dependencies and builds
 node_modules/
-.env
 dist/
+coverage/
+
+# Secrets: never commit
+.env
+.env.*
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
