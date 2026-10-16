@@ -11,4 +11,5 @@ export const theme = createTheme({
     success: { main: '#46c37b' },
   },
   shape: { borderRadius: 12 },
+  typography: { h3: { fontWeight: 300 } },
 })
