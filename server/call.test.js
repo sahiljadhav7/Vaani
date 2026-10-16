@@ -77,22 +77,22 @@ test('the same Participant joining while still online takes the Seat over', () =
 test('a Message is trimmed and stamped with id, sender and time', (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const call = createCall();
-  assert.deepEqual(call.addMessage('agent', '  hello  '), { id: 1, kind: 'message', from: 'agent', text: 'hello', at: 1000 });
-  assert.equal(call.addMessage('customer', 'hi').id, 2);
+  assert.deepEqual(call.addEntry('message', 'agent', '  hello  '), { id: 1, kind: 'message', from: 'agent', text: 'hello', at: 1000 });
+  assert.equal(call.addEntry('message', 'customer', 'hi').id, 2);
 });
 
 test('an empty, too long or non-text Message is dropped', () => {
   const call = createCall();
   for (const text of [undefined, null, 42, ['hi'], {}, '', '   ', 'x'.repeat(1001)]) {
-    assert.equal(call.addMessage('agent', text), null, JSON.stringify(text));
+    assert.equal(call.addEntry('message', 'agent', text), null, JSON.stringify(text));
   }
-  const longest = call.addMessage('agent', 'x'.repeat(1000));
+  const longest = call.addEntry('message', 'agent', 'x'.repeat(1000));
   assert.deepEqual(call.join('agent', 'tab-1').transcript, [longest]);
 });
 
 test('the Transcript keeps only the last 200 entries', () => {
   const call = createCall();
-  for (let i = 1; i <= 201; i++) call.addMessage('agent', `line ${i}`);
+  for (let i = 1; i <= 201; i++) call.addEntry('message', 'agent', `line ${i}`);
   const { transcript } = call.join('agent', 'tab-1');
   assert.equal(transcript.length, 200);
   assert.equal(transcript[0].text, 'line 2');
@@ -103,9 +103,9 @@ test('a Participant who rejoins during the Grace Period gets the whole Transcrip
   const call = createCall();
   call.join('agent', 'tab-1');
   call.join('customer', 'tab-2');
-  const first = call.addMessage('customer', 'my order is late');
+  const first = call.addEntry('message', 'customer', 'my order is late');
   call.disconnect('customer', 'tab-2');
-  const second = call.addMessage('agent', 'are you there?');
+  const second = call.addEntry('message', 'agent', 'are you there?');
   assert.deepEqual(call.join('customer', 'tab-2').transcript, [first, second]);
 });
 
@@ -136,4 +136,14 @@ test('a rejoin while the other side is in its Grace Period leaves the offerer al
   assert.equal(call.offerer, 'agent');
   call.join('agent', 'tab-1');
   assert.equal(call.offerer, 'customer');
+});
+
+test('an Utterance joins the same Transcript as a Message, in time order', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+  const call = createCall();
+  const typed = call.addEntry('message', 'customer', 'my order is late');
+  t.mock.timers.tick(500);
+  const spoken = call.addEntry('utterance', 'agent', ' aapka order kal tak aa jayega ');
+  assert.deepEqual(spoken, { id: 2, kind: 'utterance', from: 'agent', text: 'aapka order kal tak aa jayega', at: 1500 });
+  assert.deepEqual(call.join('agent', 'tab-1').transcript, [typed, spoken]);
 });

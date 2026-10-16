@@ -1,6 +1,6 @@
 const OTHER = { customer: 'agent', agent: 'customer' };
 const TRANSCRIPT_MAX = 200;
-const MESSAGE_MAX = 1000;
+export const TEXT_MAX = 1000; // longest Message, Utterance or Subtitle
 
 // The one Call: its two Seats and when it started. Knows nothing about Socket.io.
 export function createCall() {
@@ -32,16 +32,16 @@ export function createCall() {
     return true;
   }
 
-  // A typed Message from the Participant in `role`; null when the text isn't worth keeping.
-  function addMessage(role, text) {
+  // A typed Message or a spoken Utterance from the Participant in `role`; null when the text isn't worth keeping.
+  function addEntry(kind, role, text) {
     if (typeof text !== 'string') return null;
     text = text.trim();
-    if (!text || text.length > MESSAGE_MAX) return null;
-    const entry = { id: nextId++, kind: 'message', from: role, text, at: Date.now() };
+    if (!text || text.length > TEXT_MAX) return null;
+    const entry = { id: nextId++, kind, from: role, text, at: Date.now() };
     transcript.push(entry);
     if (transcript.length > TRANSCRIPT_MAX) transcript.shift();
     return entry;
   }
 
-  return { join, disconnect, addMessage, get offerer() { return offerer; } };
+  return { join, disconnect, addEntry, get offerer() { return offerer; } };
 }

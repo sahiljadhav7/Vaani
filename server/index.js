@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import { createCalls } from './calls.js';
 import { isSignal } from './signal.js';
 import { isMute } from './mute.js';
+import { isSubtitle } from './subtitle.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -74,8 +75,17 @@ io.on('connection', (socket) => {
 
   socket.on('chat-message', (data) => {
     if (!socket.data.role) return;
-    const entry = calls.addMessage(socket.data.callId, socket.data.role, data?.text);
+    const entry = calls.addEntry(socket.data.callId, 'message', socket.data.role, data?.text);
     if (entry) io.to(socket.data.callId).emit('transcript-entry', entry);
+  });
+
+  // Browser speech path: interim text is the other side's live Subtitle, a final one becomes an Utterance.
+  socket.on('subtitle', (data) => {
+    const { callId, role } = socket.data;
+    if (!role || !isSubtitle(data)) return;
+    if (!data.final) return socket.to(callId).emit('subtitle', { from: role, text: data.text });
+    const entry = calls.addEntry(callId, 'utterance', role, data.text);
+    if (entry) io.to(callId).emit('transcript-entry', entry);
   });
 
   // Only the offerer restarts ICE, so two offers never cross; if it pressed Retry itself, it gets this back.
