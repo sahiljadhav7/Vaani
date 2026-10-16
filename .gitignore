@@ -17,3 +17,8 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Docs: keep local only
+*.md
+/Docs/
+/.scratch/
