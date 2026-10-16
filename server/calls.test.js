@@ -141,3 +141,13 @@ test('a Message lands only in its own Call, and an ended Call takes none', () =>
   assert.equal(calls.addMessage(a, 'agent', 'too late'), null);
   assert.equal(calls.addMessage('nope', 'agent', 'hi'), null);
 });
+
+test('the offerer is looked up by Call, and an ended or unknown Call has none', () => {
+  const calls = createCalls();
+  const { callId } = calls.join(undefined, 'agent', 'tab-1');
+  calls.join(callId, 'customer', 'tab-2');
+  assert.equal(calls.offerer(callId), 'agent');
+  calls.end(callId);
+  assert.equal(calls.offerer(callId), null);
+  assert.equal(calls.offerer('nope'), null);
+});

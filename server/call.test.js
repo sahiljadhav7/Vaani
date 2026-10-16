@@ -108,3 +108,32 @@ test('a Participant who rejoins during the Grace Period gets the whole Transcrip
   const second = call.addMessage('agent', 'are you there?');
   assert.deepEqual(call.join('customer', 'tab-2').transcript, [first, second]);
 });
+
+test('the Participant already in the Call is the offerer', () => {
+  const call = createCall();
+  call.join('agent', 'tab-1');
+  assert.equal(call.offerer, null);
+  call.join('customer', 'tab-2');
+  assert.equal(call.offerer, 'agent');
+});
+
+test('after a refresh the side that stayed is the offerer', () => {
+  const call = createCall();
+  call.join('agent', 'tab-1');
+  call.join('customer', 'tab-2');
+  call.disconnect('agent', 'tab-1');
+  call.join('agent', 'tab-1');
+  assert.equal(call.offerer, 'customer');
+});
+
+test('a rejoin while the other side is in its Grace Period leaves the offerer alone', () => {
+  const call = createCall();
+  call.join('agent', 'tab-1');
+  call.join('customer', 'tab-2');
+  call.disconnect('customer', 'tab-2');
+  call.disconnect('agent', 'tab-1');
+  call.join('customer', 'tab-2');
+  assert.equal(call.offerer, 'agent');
+  call.join('agent', 'tab-1');
+  assert.equal(call.offerer, 'customer');
+});

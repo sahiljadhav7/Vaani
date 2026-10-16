@@ -53,5 +53,9 @@ export function createCalls(onGraceExpired = () => {}) {
     return calls.get(callId)?.call.addMessage(role, text) ?? null;
   }
 
-  return { join, leave, end, addMessage, get size() { return calls.size; } };
+  function offerer(callId) {
+    return calls.get(callId)?.call.offerer ?? null;
+  }
+
+  return { join, leave, end, addMessage, offerer, get size() { return calls.size; } };
 }

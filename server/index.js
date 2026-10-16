@@ -78,6 +78,14 @@ io.on('connection', (socket) => {
     if (entry) io.to(socket.data.callId).emit('transcript-entry', entry);
   });
 
+  // Only the offerer restarts ICE, so two offers never cross; if it pressed Retry itself, it gets this back.
+  socket.on('retry-audio', () => {
+    const { callId, role } = socket.data;
+    if (!role) return;
+    const offerer = calls.offerer(callId);
+    roomSockets(callId).find((s) => s.data.role === offerer)?.emit('retry-audio');
+  });
+
   socket.on('end-call', () => {
     const { callId, role } = socket.data;
     if (!role) return;

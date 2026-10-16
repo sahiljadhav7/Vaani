@@ -6,6 +6,7 @@ const MESSAGE_MAX = 1000;
 export function createCall() {
   const seats = { customer: null, agent: null }; // role -> { sessionId, online } of the Participant holding it
   let callStartedAt = null;
+  let offerer = null; // the role that got peer-joined and sends every offer, including Retry audio's
   const transcript = []; // the last TRANSCRIPT_MAX Messages and Utterances, oldest first
   let nextId = 1;
 
@@ -20,6 +21,7 @@ export function createCall() {
     seats[role] = { sessionId, online: true };
     const other = seats[OTHER[role]];
     if (other && callStartedAt === null) callStartedAt = Date.now();
+    if (other?.online) offerer = OTHER[role];
     return { ok: true, peerPresent: !!other?.online, callStartedAt, transcript: transcript.slice() };
   }
 
@@ -41,5 +43,5 @@ export function createCall() {
     return entry;
   }
 
-  return { join, disconnect, addMessage };
+  return { join, disconnect, addMessage, get offerer() { return offerer; } };
 }
