@@ -21,8 +21,6 @@ function saveCall(value) {
 
 const linkCallId = new URLSearchParams(location.search).get('call')
 const savedOnLoad = loadCall()
-// A reload keeps its role. Otherwise a Call Link makes you the Customer, and no link makes you the Agent.
-const role = savedOnLoad?.role ?? (linkCallId ? 'customer' : 'agent')
 
 function micError(err) {
   if (err.name === 'NotAllowedError') return 'Microphone access was denied. Allow it in your browser to join.'
@@ -40,6 +38,7 @@ export default function App() {
   const [server, setServer] = useState(socket.connected ? 'up' : 'pending') // up | pending | down
   // idle | joining | waiting | connecting | connected | reconnecting | ended
   const [status, setStatus] = useState(savedOnLoad ? 'joining' : 'idle')
+  const [role, setRole] = useState(null) // set by a successful join
   const [callId, setCallId] = useState(null)
   const [callStartedAt, setCallStartedAt] = useState(null)
   const [mic, setMic] = useState(null) // your mic stream
@@ -152,7 +151,7 @@ export default function App() {
     return pc
   }
 
-  async function join(saved) {
+  async function join(target) {
     seatSocketRef.current = socket.id
     setError(null)
     let stream = mic // still live after a dropped network; gone after a reload
@@ -169,7 +168,7 @@ export default function App() {
       }
     }
 
-    const { callId, sessionId, muted: wasMuted = false } = saved ?? { callId: linkCallId ?? undefined, sessionId: crypto.randomUUID() }
+    const { callId, role, sessionId = crypto.randomUUID(), muted: wasMuted = false } = target
     let res
     try {
       res = await socket.timeout(5000).emitWithAck('join', { callId, role, sessionId })
@@ -185,15 +184,19 @@ export default function App() {
       stream.getTracks().forEach((track) => track.stop())
       setMic(null)
       saveCall(null)
-      if (res.error === 'call-ended') {
+      // Only a rejoin has a Call to come back to; a fresh link to an ended Call is just a dead link.
+      if (res.error === 'call-ended' && target.sessionId) {
         setEnded({})
         setStatus('ended')
         return
       }
       setStatus('idle')
+      const deadLink = "This Call link isn't valid, or the Call has ended."
       setError({
         'seat-taken': `${ROLE_NAME[role]} already connected`,
-        'call-not-found': "This Call link isn't valid, or the Call has ended.",
+        'call-not-found': deadLink,
+        'call-ended': deadLink,
+        ...(callId && { invalid: deadLink }),
         unreachable: "Can't reach the server. Try again.",
       }[res.error] ?? "Couldn't join the Call. Try again.")
       return
@@ -207,6 +210,8 @@ export default function App() {
     pcRef.current?.close()
     // Before the status changes: the newcomer's connection must exist when the offer arrives.
     createPeer(stream)
+    if (role === 'customer' && !linkCallId) history.replaceState(null, '', `?call=${res.callId}`)
+    setRole(role)
     saveCall({ callId: res.callId, role, sessionId, muted: wasMuted })
     setCallId(res.callId)
     setCallStartedAt(res.callStartedAt)
@@ -248,7 +253,16 @@ export default function App() {
   }
 
   if (status === 'idle' || status === 'joining') {
-    return <Landing invited={!!linkCallId} onJoin={() => join(null)} joining={status === 'joining'} server={server} error={error} />
+    return (
+      <Landing
+        invited={!!linkCallId}
+        onStart={() => join({ role: 'agent' })}
+        onJoin={(callId = linkCallId) => join({ role: 'customer', callId })}
+        joining={status === 'joining'}
+        server={server}
+        error={error}
+      />
+    )
   }
 
   if (status === 'ended') {
@@ -256,7 +270,7 @@ export default function App() {
     return (
       <Container maxWidth="sm" sx={{ py: 10 }}>
         <Typography variant="h4" component="h1" role="status">Call Ended</Typography>
-        <Typography color="text.secondary" sx={{ mt: 1 }}>
+        <Typography sx={{ color: 'text.secondary', mt: 1 }}>
           {{
             ended: `${who} ended the call`,
             'grace-expired': `${who} lost connection`,

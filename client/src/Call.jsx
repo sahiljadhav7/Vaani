@@ -59,8 +59,8 @@ export function Tile({ role, name, you, present, reconnecting, muted, stream }) 
         <Typography variant="h6">{name}</Typography>
         {you && <Chip label="You" size="small" />}
       </Stack>
-      {!present && <Typography color="text.secondary">Waiting for {name}…</Typography>}
-      {reconnecting && <Typography color="text.secondary">Reconnecting…</Typography>}
+      {!present && <Typography sx={{ color: 'text.secondary' }}>Waiting for {name}…</Typography>}
+      {reconnecting && <Typography sx={{ color: 'text.secondary' }}>Reconnecting…</Typography>}
       {present && muted && (
         <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'error.main' }}>
           <MicOff fontSize="small" />
