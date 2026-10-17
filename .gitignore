@@ -25,3 +25,4 @@ Thumbs.db
 /.archify
 /diagrams
 /.impeccable/
+!README.md
