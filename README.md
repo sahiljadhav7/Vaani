@@ -162,6 +162,7 @@ Summaries cost Gemini credit and subtitles cost Sarvam credit, so both are rate 
 ## Deploy
 
 - The client is on Vercel. Import the repo, set Root Directory to `client/` (Vercel detects Vite), and set `VITE_SERVER_URL` to the Render server's `https://…onrender.com` URL. Vite reads it at build time, so redeploy after changing it.
+- Set `VITE_TURN_URLS` (comma-separated), `VITE_TURN_USERNAME` and `VITE_TURN_CREDENTIAL` on Vercel too, from a free TURN account such as metered.ca. Without them, audio fails between most different networks (mobile data above all), because STUN alone can't get through.
 - The server is on Render. Choose New > Blueprint and pick this repo, and `render.yaml` creates one free web service in `server/`. It asks for `CLIENT_ORIGIN` (the Vercel URL with no trailing slash), `SARVAM_API_KEY` and `GEMINI_API_KEY`. Render sets `PORT` itself.
 - Run exactly one server instance. Live Calls are held in memory, so a second instance would split them.
 - Render's free tier sleeps after about 15 minutes idle, so the first visit after that can take 30 seconds or more.

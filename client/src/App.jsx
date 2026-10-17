@@ -33,6 +33,14 @@ function saveEnded(value) {
   else sessionStorage.removeItem('call-ended')
 }
 
+// TURN relays the audio when the two networks block a direct connection; unset locally, where STUN is enough.
+// shortcut: these credentials ship in the bundle, so anyone can spend the relay allowance; mint short-lived ones on the server if that happens.
+const turnUrls = import.meta.env.VITE_TURN_URLS
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  ...(turnUrls ? [{ urls: turnUrls.split(/\s*,\s*/), username: import.meta.env.VITE_TURN_USERNAME, credential: import.meta.env.VITE_TURN_CREDENTIAL }] : []),
+]
+
 const linkCallId = new URLSearchParams(location.search).get('call')
 const savedOnLoad = loadCall()
 const savedEnded = loadEnded()
@@ -201,7 +209,7 @@ export default function App() {
   }, [peerStream, status])
 
   function createPeer(stream) {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
     stream.getTracks().forEach((track) => pc.addTrack(track, stream))
     pc.onicecandidate = (event) => {
       if (event.candidate) socket.emit('signal', { candidate: event.candidate })
